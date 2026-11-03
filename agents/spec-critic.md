@@ -19,7 +19,7 @@ Check, in this order:
 9. If a constitution is given: every place the spec conflicts with it. A conflict is a Blocker unless Decisions justifies it as `Conflicts with constitution "<rule>": needed because ...; simpler alternative rejected because ...`. For a justified conflict, check only whether the justification holds.
 10. Features out of priority order (P1 first), or F1 not usable on its own: Major.
 
-Not your job: whether names exist in the repo, whether scenarios can become tests, test commands. The readiness reviewer checks those.
+Not your job: whether names exist in the repo, whether scenarios, testability lines and success criteria can be checked by a test, test commands and test setup. The readiness reviewer checks those. A success criterion that contradicts another section is still yours.
 
 Severity:
 - Blocker: a competent implementer following the text would build the wrong thing, could not start, or could not tell whether it works.

@@ -16,7 +16,7 @@ Reviewer agents:
 A reviewer is useful only while it knows nothing. The dispatch prompt holds exactly:
 - the spec path,
 - for `spec-critic`, the path of `docs/constitution.md` if that file exists,
-- in the re-audit, for `spec-critic` and `spec-readiness`, the round 1 findings of both kinds with their ids, verbatim.
+- in the re-audit, for `spec-critic` and `spec-readiness`, the path of `r2-earlier.md`: the round 1 critic and readiness findings, each line the reviewer's text verbatim, prefixed with its id.
 
 Nothing else. No summary of the feature, no intent, no "focus on", no worries, nothing from the conversation. If you feel the need to explain something to a reviewer, the explanation belongs in the spec, or the spec points to the repo path that holds it.
 
@@ -31,7 +31,7 @@ Reviewer failure: if a dispatch errors, times out, or the reply does not follow 
 1. Paraphrase. Dispatch `spec-paraphrase`. Compare its restatement with what you meant and with the repo.
    - `CONTEXT: missing` is a Blocker.
    - A wrong EXISTING SYSTEM or BUILDS line (diverges from what you meant, or from the repo) is a Blocker on the text.
-   - Every guess is at least a Major, no matter which reading is right.
+   - A guess that picked a reading you did not mean is a Blocker, like a divergence. A guess that picked your reading is a Major in round 1 and a Nit in round 2: the text is ambiguous, but this reader got it right, and a fix after the re-audit goes unreviewed.
    Fix the text, not the reader. Do not redispatch; go on.
 2. Critic and readiness. Dispatch `spec-critic` and `spec-readiness` in parallel on the fixed spec. A constitution conflict is a Blocker unless the Decisions section justifies it.
 3. Merge duplicates: critic and readiness findings about the same text and the same problem become one. Keep both ids, take the higher severity.
@@ -48,7 +48,7 @@ Reviewer failure: if a dispatch errors, times out, or the reply does not follow 
 
 ## Round 2: one re-audit
 
-Dispatch all three again as fresh agents. `spec-critic` and `spec-readiness` get all round 1 critic and readiness findings with ids, verbatim, without your resolutions. They answer each as `- <id>: resolved "<quote>" | open` and report anything new at Blocker level only. `spec-paraphrase` gets the path only.
+Dispatch all three again as fresh agents. `spec-critic` and `spec-readiness` get the path of `r2-earlier.md` (write it to the review folder first), without your resolutions. They answer each as `- <id>: resolved "<quote>" | open` and report anything new at Blocker level only. `spec-paraphrase` gets the path only.
 
 Number, merge and triage as in round 1, then stop reviewing. There is no round 3, whatever round 2 found. Escalations from round 2 go to the approval step. Fixes applied after round 2 are not reviewed by anyone, so list them for the user at approval.
 
@@ -68,7 +68,7 @@ Fill in the Review section of the spec. Counts are after merging.
 
 ```
 ## Review
-- Round 1 (<date>): paraphrase <n> divergences, <n> guesses; critic B<n> M<n> N<n>; readiness B<n> M<n> N<n>. Fixed <n>, rejected <n>, escalated <n>. Not run: <agent or none>.
+- Round 1 (<date>): paraphrase context <sufficient|missing>, <n> divergences, <n> guesses; critic B<n> M<n> N<n>; readiness B<n> M<n> N<n>. Fixed <n>, rejected <n>, escalated <n>. Not run: <agent or none>.
 - Round 2 (<date>): same counts.
 - Clarification (<date>): <question> Answer: <answer>. Changed: <section>.
 - Rejected: <id>: <finding, one line>. Reason: <the spec line that already says it, or out of scope>.

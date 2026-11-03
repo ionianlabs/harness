@@ -29,9 +29,8 @@ Milestone 1, bare floor. Done: read gate with Haiku reader agent, commit gate, c
 
 ## Debt
 - Read gate gaps in `docs/study/shunt.md` (`2>/dev/null`, quoted paths, chained commands, large `head -n`, state in /tmp): pin in tests or fix.
-- Skills and reviewer agents not yet run live on a real spec.
-- Exemption assumes plugin agents report bare `agent_type` (verified for `reader` only).
+- Spec reviewers ran once as general-purpose agents (plugin not loaded): tool limits and bare `agent_type` exemption unverified (verified for `reader` only). They had no Grep or Glob.
 - `lib/config.sh` flat TOML only. Secret scan untested live. Source glob heuristic. No `claude plugin eval` cases.
 
 ## Next
-Run spec-draft and spec-review live on one small spec (a read-gate denial for a `spec-*` agent in `.git/harness/gate.log` means its `agent_type` is namespaced), then write the coder TDD skill.
+In a session started with `claude --plugin-dir .`: run spec-review on `docs/designs/commit-gate-shell-tests.md`, check `.git/harness/gate.log` for `spec-*` denials and whether critic and readiness have Grep and Glob. Then write the coder TDD skill.
