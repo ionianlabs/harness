@@ -102,7 +102,7 @@ echo "$(date +%H:%M:%S) agent=$(jq -r '.agent_type // "main"' <<<"$payload") too
 # 2. secrets in staged lines
 secrets="$(cfg security.secrets "gitleaks git --pre-commit --staged --redact --no-banner")"
 if command -v "${secrets%% *}" >/dev/null 2>&1; then
-  out="$(eval "$secrets" 2>&1)" || deny "secret scan failed ($secrets)." "$out"
+  out="$(eval "$secrets" 2>&1)" || deny "secret scan failed ($secrets). Remove the secret from the staged files (move it to an environment variable or a secrets store), unstage anything that must not be committed with git restore --staged <file>, stage the fixed files, then commit again." "$out"
 else
   echo "  note: secret scanner not installed (${secrets%% *}), skipped" >> "$log"
 fi

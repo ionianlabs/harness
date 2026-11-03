@@ -174,5 +174,23 @@ check "commit: cat heredoc piped to sh -s denied" 2 $C "$(bash_cmd $'cat <<EOF |
 check "commit: cat heredoc to file then bash file denied" 2 $C "$(bash_cmd $'cat <<EOF > run.sh && bash run.sh\ngit commit-tree x\nEOF' "$clean")"
 check "commit: cat heredoc to notes.md passes" 0 $C "$(bash_cmd $'cat <<EOF > notes.md\ngit commit-tree x\nEOF' "$clean")"
 check "commit: python heredoc printing commit-tree passes" 0 $C "$(bash_cmd $'python3 - <<EOF\nprint("git commit-tree x")\nEOF' "$clean")"
+# live secret scan: the real gitleaks binary against staged content (skipped when it is not installed)
+if command -v gitleaks >/dev/null 2>&1; then
+  live="$(repo_with '' src/a.py tests/a_test.sh)"
+  printf '[test]\nunit = "true"\ndir = "tests"\n' > "$live/harness.toml"   # no [security]: the default scan command runs
+  fake="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 36)"      # built at runtime, never a literal
+  echo "token = $fake" > "$live/src/leak.txt"; git -C "$live" add src/leak.txt
+  check "secret: staged token denied (live gitleaks)" 2 $C "$(commit "$live" "add leak")"
+  msg="$(commit "$live" "add leak" | bash $C 2>&1 >/dev/null)"
+  [[ "$msg" == *"Remove the secret"* && "$msg" == *"git restore --staged"* && "$msg" == *"commit again"* ]] && echo "ok   secret: denial says remove, unstage, commit again" || { echo "FAIL secret: denial says remove, unstage, commit again"; fail=1; }
+  [[ "$msg" != *"$fake"* && "$msg" != *"no-verify"* && "$msg" != *"no-tests"* ]] && echo "ok   secret: denial leaks no token and names no escape hatch" || { echo "FAIL secret: denial leaks no token and names no escape hatch"; fail=1; }
+  n=$((n+2))
+  git -C "$live" rm -q -f --cached src/leak.txt; rm "$live/src/leak.txt"
+  check "secret: clean staged change passes (live gitleaks)" 0 $C "$(commit "$live" "clean change")"
+  echo "token = $fake" > "$live/src/unstaged.txt"
+  check "secret: unstaged-only secret does not block (staged scan)" 0 $C "$(commit "$live" "clean change")"
+else
+  echo "skip secret: live gitleaks checks (gitleaks not installed)"
+fi
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail
