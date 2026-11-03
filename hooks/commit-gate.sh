@@ -17,6 +17,7 @@ cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
 # `git` as a word anywhere (after a newline, quote, paren, path or prefix command), then global options, then `commit`
 commit_re='(^|[^[:alnum:]_.-])git([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+commit([^[:alnum:]_-]|$)'
 [[ "$cmd" =~ $commit_re ]] || exit 0
+opts="${BASH_REMATCH[2]}"
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cwd="$(jq -r '.cwd // "."' <<<"$payload")"
@@ -26,6 +27,12 @@ if [[ "$cmd" =~ ^[[:space:]]*cd[[:space:]]+([^[:space:];&]+)[[:space:]]*(&&|;) ]
 else
   cd "$cwd" 2>/dev/null || true
 fi
+# the commit happens in <dir> of `-C <dir>`, resolved against the directory we are in
+dirnext=0
+for w in $opts; do
+  if [ "$dirnext" = 1 ]; then cd "$w" 2>/dev/null || true; dirnext=0
+  elif [ "$w" = "-C" ]; then dirnext=1; fi
+done
 repo="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 [ -f "$here/lib/config.sh" ] || { echo "Commit gate: lib/config.sh missing at $here, refusing to commit unverified." >&2; exit 2; }
 cfg() { bash "$here/lib/config.sh" "$repo" "$1" "$2"; }

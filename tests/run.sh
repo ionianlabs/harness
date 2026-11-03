@@ -98,5 +98,13 @@ h3="$(mktemp -d "$fresh/home.XXXXXX")"; mkdir -p "$h3/.config/harness"
 printf '[test]\nunit = "old"\n' > "$h3/.config/harness/$nm.toml"
 [ -z "$(HOME="$h3" lib/config.sh "$rn" test.unit)" ] && echo "ok   config: old ~/.config/harness not read" || { echo "FAIL config: old ~/.config/harness not read"; fail=1; }
 HOME="$h3" bash lib/config.sh "$rn" --exists && { echo "FAIL config: old location not counted by --exists"; fail=1; } || echo "ok   config: old location not counted by --exists"
+# git -C <dir> commit is checked against the repo at <dir>, relative to the payload cwd
+unc="$(repo_with "" src/a.py)"; rm "$unc/harness.toml"
+cfgd="$(repo_with "" src/a.py)"
+HOME="$home" check "commit: -C configured repo gated from unconfigured cwd" 2 $C "$(bash_cmd "git -C $cfgd commit -m x" "$unc")"
+red="$(repo_with '' src/a.py)"; printf '[test]\nunit = "false"\n[security]\nsecrets = "true"\n' > "$red/harness.toml"
+HOME="$home" check "commit: -C unconfigured repo left alone from red cwd" 0 $C "$(bash_cmd "git -C $unc commit -m x" "$red")"
+HOME="$home" check "commit: -C relative dir resolved against cwd" 2 $C "$(bash_cmd "git -C ../$(basename "$cfgd") commit -m x" "$unc")"
+HOME="$home" check "commit: -C missing dir falls back to cwd repo" 2 $C "$(bash_cmd "git -C /nonexistent/zz commit -m x" "$cfgd")"
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail
