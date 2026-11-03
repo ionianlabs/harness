@@ -7,7 +7,7 @@ updated: 2026-11-03
 A plugin (Claude Code first, Copilot later) that makes agent-built code trustworthy without ceremony: one coordinator thread, zero-context workers, hook-enforced gates. Design in `CONCEPT.md`.
 
 ## Active workstream
-Milestone 1 floor built, hardened and in daily use at user level; next is the pilot. Latest: commit gate covers `git -C`, `commit-tree`, unparseable payloads and heredoc bodies; secret scan tested live with gitleaks; repo publishable (Ionian Labs author, MIT `LICENSE`) behind a local pre-push leak guard. `state` skill and CONCEPT 6b define the Brain contract, checked by `tests/compat-brain.sh` (5/5). 107 checks in `bash tests/run.sh`, about 21 s.
+Milestone 1 floor built, hardened and in daily use at user level; next is the pilot. Latest: commit gate covers `git -C`, `commit-tree`, unparseable payloads and heredoc bodies; secret scan tested live with gitleaks; repo publishable (Ionian Labs author, MIT `LICENSE`) behind a local pre-push leak guard. `state` skill and CONCEPT 6b define the Brain contract, checked by `tests/compat-brain.sh`. 107 checks in `bash tests/run.sh`.
 
 ## Architecture
 - `.claude-plugin/plugin.json`: manifest, MIT; skills and agents auto-discovered.
