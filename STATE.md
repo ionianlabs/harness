@@ -14,7 +14,7 @@ Milestone 1, bare floor. Done: read gate and reader agent, commit gate, config l
 - `hooks/hooks.json`: PreToolUse `Read|Bash` -> read gate; `Bash` -> commit gate (timeout 180).
 - `hooks/read-gate.sh`: denies whole-file reads over 350 lines. Exempt: `reader` and the three `spec-*`, bare or `ionian-harness:`-prefixed. Loop guard at three denials. Fails open.
 - `hooks/commit-gate.sh`: only in repos with a harness config (repo or home); `--no-verify` denied, secret scan, unit suite, source needs test change (`[no-tests]` escape). Fails closed.
-- `lib/config.sh`: flat TOML reader, repo `harness.toml` then `$IONIAN_HOME/harness/<repo>.toml` (default `~/Ionian`).
+- `lib/config.sh`: flat TOML reader, repo `harness.toml` then `$IONIAN_HOME/harness/<repo>.toml`.
 - `agents/reader.md`: Haiku, bullets, line ranges.
 - `skills/spec-draft/`: SKILL.md plus `template.md`; writes `docs/designs/<slug>.md`, never approves.
 - `skills/spec-review/`: paraphrase, then critic and readiness in parallel, one re-audit, user approval. Replies in `.git/harness/review/<slug>/`.
