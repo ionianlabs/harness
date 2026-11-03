@@ -9,7 +9,7 @@ You write the code for one item: a plan item, one or more spec scenarios (`F1.1`
 ## Before the first test
 
 - Read the item and, if it cites a spec in `docs/designs/`, the scenarios it names. The scenario's concrete values are your test data.
-- Commands and places come from config: `harness.toml` at the repo root, else `~/.config/harness/<repo-name>.toml`. `test.unit` is the unit command, `test.full` the full one, `test.dir` (default `tests`) where tests live. The commit gate counts only files under `test.dir` as tests. If `test.unit` is defined nowhere, or the repo keeps its tests somewhere else, do not guess: ask, or report `NEEDS_CONTEXT`.
+- Commands and places come from config: `harness.toml` at the repo root, else `$IONIAN_HOME/harness/<repo-name>.toml` (default `~/Ionian/harness/<repo-name>.toml`). `test.unit` is the unit command, `test.full` the full one, `test.dir` (default `tests`) where tests live. The commit gate counts only files under `test.dir` as tests. If `test.unit` is defined nowhere, or the repo keeps its tests somewhere else, do not guess: ask, or report `NEEDS_CONTEXT`.
 - Run the unit command once before changing anything. If it is red already, stop and report it; do not build on a red suite.
 - If a test cannot be written without a decision the item does not make (a value, a format, a behaviour a user would notice), do not choose. Ask, or, as a dispatched subagent that cannot ask, report `NEEDS_CONTEXT` with the exact question.
 - Files over 350 lines: search with `grep -n` for the name you need, then Read with offset and limit around the hit. Never read them whole.

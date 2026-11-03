@@ -113,7 +113,7 @@ Mechanics, not intentions:
 - Monthly drift report on the harness itself: per hook, how often it fired and how often it caught something. A hook that fires two hundred times and catches nothing is deleted.
 - One number watched over time: turns to first commit. Over ten means ceremony has crept in.
 
-Lookup order: repo root, then `~/.config/harness/<repo-name>.toml` for repos that must stay footprint-free (client code), then auto-detect from `pyproject.toml` or `package.json` with a warning. Missing command means that gate is skipped with a visible notice, never silently.
+Lookup order: repo root, then `$IONIAN_HOME/harness/<repo-name>.toml` (default `~/Ionian/harness/<repo-name>.toml`) for repos that must stay footprint-free (client code), then auto-detect from `pyproject.toml` or `package.json` with a warning. Missing command means that gate is skipped with a visible notice, never silently. `IONIAN_HOME` is a convention shared across Ionian products: each keeps its data in `$IONIAN_HOME/<product>`, default `~/Ionian/<product>`.
 
 ## 6. Borrow the concepts, write the files ourselves
 

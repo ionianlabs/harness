@@ -72,18 +72,31 @@ commit "$d" "change y" | bash $C 2>&1 >/dev/null | grep -qF lib/y.sh && echo "ok
 check "commit: hooks/*.sh plus test passes" 0 $C "$(commit "$(repo_with "" hooks/x.sh tests/x_test.sh)" "change x with test")"
 check "commit: hooks/*.sh [no-tests] passes" 0 $C "$(commit "$(repo_with "" hooks/x.sh)" "change x [no-tests] comment only")"
 check "commit: require_tests false passes"  0 $C "$(commit "$(repo_with '[gate]\nrequire_tests = "false"\n' hooks/x.sh)" "change x")"
-# the gate acts only where a harness config exists: repo harness.toml or ~/.config/harness/<repo>.toml
+# the gate acts only where a harness config exists: repo harness.toml or ~/Ionian/harness/<repo>.toml (IONIAN_HOME overrides ~/Ionian)
+unset IONIAN_HOME
 home="$(mktemp -d "$fresh/home.XXXXXX")"
 d="$(repo_with "" src/a.py)"; rm "$d/harness.toml"
 HOME="$home" check "commit: unconfigured repo left alone" 0 $C "$(commit "$d" "add a")"
 HOME="$home" check "commit: unconfigured --no-verify left alone" 0 $C "$(bash_cmd 'git commit --no-verify -m x' "$d")"
 [ ! -e "$d/.git/harness" ] && echo "ok   commit: unconfigured repo gets no .git/harness" || { echo "FAIL commit: unconfigured repo gets no .git/harness"; fail=1; }
-mkdir -p "$home/.config/harness"; printf '[test]\nunit = "true"\n[security]\nsecrets = "true"\n' > "$home/.config/harness/$(basename "$d").toml"
+mkdir -p "$home/Ionian/harness"; printf '[test]\nunit = "true"\n[security]\nsecrets = "true"\n' > "$home/Ionian/harness/$(basename "$d").toml"
 HOME="$home" check "commit: home config gates the repo" 2 $C "$(commit "$d" "add a")"
 check "config: reads section.key"          0 lib/config.sh ""
 [ "$(lib/config.sh "$tmp" test.unit)" = "true" ] && echo "ok   config: value" || { echo "FAIL config: value"; fail=1; }
 [ "$(lib/config.sh "$tmp" nope.key dflt)" = "dflt" ] && echo "ok   config: default" || { echo "FAIL config: default"; fail=1; }
 bash lib/config.sh "$tmp" --exists && echo "ok   config: --exists with repo file" || { echo "FAIL config: --exists with repo file"; fail=1; }
 HOME="$home" bash lib/config.sh "$(mktemp -d "$fresh/bare.XXXXXX")" --exists && { echo "FAIL config: --exists without any file"; fail=1; } || echo "ok   config: --exists without any file"
+# IONIAN_HOME replaces ~/Ionian; the old ~/.config/harness location is no longer read
+rn="$(mktemp -d "$fresh/named.XXXXXX")"; nm="$(basename "$rn")"
+h2="$(mktemp -d "$fresh/home.XXXXXX")"; ih="$(mktemp -d "$fresh/ih.XXXXXX")"
+mkdir -p "$h2/Ionian/harness" "$ih/harness"
+printf '[test]\nunit = "fromhome"\n' > "$h2/Ionian/harness/$nm.toml"
+[ "$(HOME="$h2" lib/config.sh "$rn" test.unit)" = "fromhome" ] && echo "ok   config: default ~/Ionian/harness" || { echo "FAIL config: default ~/Ionian/harness"; fail=1; }
+printf '[test]\nunit = "fromihome"\n' > "$ih/harness/$nm.toml"
+[ "$(HOME="$h2" IONIAN_HOME="$ih" lib/config.sh "$rn" test.unit)" = "fromihome" ] && echo "ok   config: IONIAN_HOME overrides default" || { echo "FAIL config: IONIAN_HOME overrides default"; fail=1; }
+h3="$(mktemp -d "$fresh/home.XXXXXX")"; mkdir -p "$h3/.config/harness"
+printf '[test]\nunit = "old"\n' > "$h3/.config/harness/$nm.toml"
+[ -z "$(HOME="$h3" lib/config.sh "$rn" test.unit)" ] && echo "ok   config: old ~/.config/harness not read" || { echo "FAIL config: old ~/.config/harness not read"; fail=1; }
+HOME="$h3" bash lib/config.sh "$rn" --exists && { echo "FAIL config: old location not counted by --exists"; fail=1; } || echo "ok   config: old location not counted by --exists"
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail
