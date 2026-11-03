@@ -27,10 +27,12 @@ else
   cd "$cwd" 2>/dev/null || true
 fi
 repo="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-state="$(git rev-parse --git-dir 2>/dev/null || echo /tmp)/harness"; mkdir -p "$state"
-log="$state/gate.log"
 [ -f "$here/lib/config.sh" ] || { echo "Commit gate: lib/config.sh missing at $here, refusing to commit unverified." >&2; exit 2; }
 cfg() { bash "$here/lib/config.sh" "$repo" "$1" "$2"; }
+# only repos with a harness config are gated; anywhere else the gate leaves no trace
+cfg --exists || exit 0
+state="$(git rev-parse --git-dir 2>/dev/null || echo /tmp)/harness"; mkdir -p "$state"
+log="$state/gate.log"
 
 deny() { echo "  -> commit DENIED: $1" >> "$log"; printf 'Commit gate: %s\n' "$1" >&2; [ -n "$2" ] && printf '%s\n' "$2" | tail -n 25 >&2; exit 2; }
 echo "$(date +%H:%M:%S) agent=$(jq -r '.agent_type // "main"' <<<"$payload") tool=Bash git commit in $repo" >> "$log"

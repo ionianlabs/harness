@@ -2,8 +2,12 @@
 # Ionian Harness config reader. Flat TOML only: [section] headers and key = "value" lines.
 # Usage: config.sh <repo-dir> <section.key> [default]
 # Lookup order: <repo>/harness.toml, ~/.config/harness/<repo-name>.toml, then default.
+# config.sh <repo-dir> --exists: exit 0 if either file exists, 1 if neither.
 repo="$1"; key="$2"; default="$3"
 name="$(basename "$repo")"
+if [ "$key" = "--exists" ]; then
+  [ -f "$repo/harness.toml" ] || [ -f "$HOME/.config/harness/$name.toml" ]; exit
+fi
 for f in "$repo/harness.toml" "$HOME/.config/harness/$name.toml"; do
   [ -f "$f" ] || continue
   val="$(awk -v want="$key" '

@@ -36,7 +36,7 @@ mkdir -p "$tmp/tests" "$tmp/src"; echo "x=1" > "$tmp/src/a.py"; git -C "$tmp" ad
 check "commit: non-commit bash ignored"    0 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git status\"}}"
 check "commit: --no-verify denied"         2 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git commit --no-verify -m x\"}}"
 # every way of spelling a commit reaches the gate; --no-verify makes "recognised" visible as exit 2
-bash_cmd() { jq -nc --arg c "$1" --arg d "$tmp" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}'; }
+bash_cmd() { jq -nc --arg c "$1" --arg d "${2:-$tmp}" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}'; }
 for c in 'git -c user.name=x commit --no-verify -m x' 'git --no-pager commit --no-verify -m x' \
          "bash -c 'git commit --no-verify -m x'" 'sh -c "git commit --no-verify -m x"' \
          $'cd /tmp\ngit commit --no-verify -m x' 'env A=1 git commit --no-verify -m x' \
@@ -72,8 +72,18 @@ commit "$d" "change y" | bash $C 2>&1 >/dev/null | grep -qF lib/y.sh && echo "ok
 check "commit: hooks/*.sh plus test passes" 0 $C "$(commit "$(repo_with "" hooks/x.sh tests/x_test.sh)" "change x with test")"
 check "commit: hooks/*.sh [no-tests] passes" 0 $C "$(commit "$(repo_with "" hooks/x.sh)" "change x [no-tests] comment only")"
 check "commit: require_tests false passes"  0 $C "$(commit "$(repo_with '[gate]\nrequire_tests = "false"\n' hooks/x.sh)" "change x")"
+# the gate acts only where a harness config exists: repo harness.toml or ~/.config/harness/<repo>.toml
+home="$(mktemp -d "$fresh/home.XXXXXX")"
+d="$(repo_with "" src/a.py)"; rm "$d/harness.toml"
+HOME="$home" check "commit: unconfigured repo left alone" 0 $C "$(commit "$d" "add a")"
+HOME="$home" check "commit: unconfigured --no-verify left alone" 0 $C "$(bash_cmd 'git commit --no-verify -m x' "$d")"
+[ ! -e "$d/.git/harness" ] && echo "ok   commit: unconfigured repo gets no .git/harness" || { echo "FAIL commit: unconfigured repo gets no .git/harness"; fail=1; }
+mkdir -p "$home/.config/harness"; printf '[test]\nunit = "true"\n[security]\nsecrets = "true"\n' > "$home/.config/harness/$(basename "$d").toml"
+HOME="$home" check "commit: home config gates the repo" 2 $C "$(commit "$d" "add a")"
 check "config: reads section.key"          0 lib/config.sh ""
 [ "$(lib/config.sh "$tmp" test.unit)" = "true" ] && echo "ok   config: value" || { echo "FAIL config: value"; fail=1; }
 [ "$(lib/config.sh "$tmp" nope.key dflt)" = "dflt" ] && echo "ok   config: default" || { echo "FAIL config: default"; fail=1; }
+bash lib/config.sh "$tmp" --exists && echo "ok   config: --exists with repo file" || { echo "FAIL config: --exists with repo file"; fail=1; }
+HOME="$home" bash lib/config.sh "$(mktemp -d "$fresh/bare.XXXXXX")" --exists && { echo "FAIL config: --exists without any file"; fail=1; } || echo "ok   config: --exists without any file"
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail

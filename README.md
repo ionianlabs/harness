@@ -13,7 +13,7 @@ Harness borrows from the best work I found: the zero-context review from Google'
 - `skills/spec-draft`: the main thread drafts `docs/designs/<slug>.md` from a fixed template: features in priority order, each with a why, numbered Given/When/Then scenarios and a testability note, plus measurable success criteria.
 - `skills/spec-review`: three zero-context reviewers (`agents/spec-paraphrase.md`, `spec-critic.md`, `spec-readiness.md`, Opus, read-only) review the draft, one re-audit, then forced convergence and your approval.
 - `skills/tdd`: whoever writes code works one item test first: a test seen failing for the right reason, the smallest change, the whole unit suite green, one deliberate break per new test, one commit, a fixed report.
-- `hooks/commit-gate.sh`: on `git commit`, refuses `--no-verify`, scans staged lines with gitleaks, runs the unit suite from `harness.toml`, and denies source changes that come without a test change (`[no-tests]` in the message is the documented escape).
+- `hooks/commit-gate.sh`: in repos with a harness config (`harness.toml`, or `~/.config/harness/<repo>.toml` for repos that must stay untouched), on `git commit`, refuses `--no-verify`, scans staged lines with gitleaks, runs the unit suite from `harness.toml`, and denies source changes that come without a test change (`[no-tests]` in the message is the documented escape).
 - `lib/config.sh`: reads `harness.toml` (repo, then `~/.config/harness/<repo>.toml`).
 - `tests/run.sh`: the hooks' own unit tests, fake payloads in, exit codes out. This repo's `harness.toml` points its commit gate at them.
 - Every decision is logged to `.git/harness/gate.log`.
