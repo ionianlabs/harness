@@ -11,6 +11,10 @@ if ! command -v jq >/dev/null 2>&1; then
   grep -q 'git[^"]*commit' <<<"$payload" && { echo "Commit gate: jq is not installed, cannot verify this commit. Install jq (brew install jq)." >&2; exit 2; }
   exit 0
 fi
+if ! jq -e . >/dev/null 2>&1 <<<"$payload"; then
+  grep -q 'git[^"]*commit' <<<"$payload" && { echo "Commit gate: the hook payload is not valid JSON, cannot verify this commit. Run the same git commit again as a plain command." >&2; exit 2; }
+  exit 0
+fi
 tool="$(jq -r '.tool_name // ""' <<<"$payload")"
 [ "$tool" = "Bash" ] || exit 0
 cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"

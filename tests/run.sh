@@ -115,5 +115,8 @@ check "commit: --no-verify after quoted message denied" 2 $C "$(bash_cmd "git co
 check "commit: quoted text mentioning commit and -n is not --no-verify" 0 $C "$(bash_cmd $'python3 - <<\'EOF\'\nprint("git -C x commit; then -n")\nEOF' "$clean")"
 check "commit: quoted text with -n and a space is not --no-verify" 0 $C "$(bash_cmd $'python3 - <<\'EOF\'\nprint("git -C x commit; then -n now")\nEOF' "$clean")"
 check "commit: -n after a separator is not --no-verify" 0 $C "$(bash_cmd "git commit -m x; ls -n" "$clean")"
+# an unparseable payload is judged like the no-jq case: denied only when it looks like a commit
+check "commit: invalid JSON that looks like a commit denied" 2 $C '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"'
+check "commit: invalid JSON that is no commit passes" 0 $C '{"tool_name":"Bash","tool_input":{"command":"git status"'
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail
