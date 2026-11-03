@@ -14,7 +14,9 @@ fi
 tool="$(jq -r '.tool_name // ""' <<<"$payload")"
 [ "$tool" = "Bash" ] || exit 0
 cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
-[[ "$cmd" =~ (^|[;&|][[:space:]]*)git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit ]] || exit 0
+# `git` as a word anywhere (after a newline, quote, paren, path or prefix command), then global options, then `commit`
+commit_re='(^|[^[:alnum:]_.-])git([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+commit([^[:alnum:]_-]|$)'
+[[ "$cmd" =~ $commit_re ]] || exit 0
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cwd="$(jq -r '.cwd // "."' <<<"$payload")"

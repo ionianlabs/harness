@@ -7,7 +7,7 @@ updated: 2026-11-03
 A plugin (Claude Code first, Copilot later) that makes agent-built code trustworthy without ceremony: one coordinator thread, zero-context workers, hook-enforced gates. Design in `CONCEPT.md`.
 
 ## Active workstream
-Milestone 1, bare floor. Done: read gate and reader agent, commit gate, config loader, spec skills with three reviewers (one spec through to code), tdd skill (not used live), 26 checks in `bash tests/run.sh`. Plugin wiring verified headless: exemptions match, reviewers have Grep and Glob. Remaining: two weeks on the pilot repo.
+Milestone 1, bare floor. Done: read gate and reader agent, commit gate, config loader, spec skills with three reviewers (one spec through to code), tdd skill (used on two gate fixes), 42 checks in `bash tests/run.sh`. Plugin wiring verified headless: exemptions match, reviewers have Grep and Glob. Remaining: two weeks on the pilot repo.
 
 ## Architecture
 - `.claude-plugin/plugin.json`: manifest, MIT. Skills and agents auto-discovered.
@@ -30,8 +30,8 @@ Milestone 1, bare floor. Done: read gate and reader agent, commit gate, config l
 
 ## Debt
 - Read gate gaps in `docs/study/shunt.md` (`2>/dev/null`, quoted paths, chained commands, large `head -n`, state in /tmp): pin in tests or fix.
-- Commit gate regex misses `git -c k=v commit` and `bash -c "git commit"`.
+- Commit gate cannot see `git commit-tree` or commands built from variables (`g=git; $g commit`).
 - `lib/config.sh` flat TOML only. Secret scan untested live. Source glob heuristic. No `claude plugin eval` cases.
 
 ## Next
-Use tdd live on the commit gate regex gap (`git -c k=v commit`, `bash -c "git commit"`). Headless plugin checks: `claude -p --plugin-dir . --output-format stream-json --verbose`.
+Two weeks of use on the pilot repo (Ionian Flow, after its migration), then the milestone 1 lessons entry. Headless plugin checks: `claude -p --plugin-dir . --output-format stream-json --verbose`.

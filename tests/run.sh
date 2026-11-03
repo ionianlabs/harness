@@ -35,6 +35,17 @@ printf '[test]\nunit = "true"\ndir = "tests"\n[security]\nsecrets = "true"\n' > 
 mkdir -p "$tmp/tests" "$tmp/src"; echo "x=1" > "$tmp/src/a.py"; git -C "$tmp" add -A
 check "commit: non-commit bash ignored"    0 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git status\"}}"
 check "commit: --no-verify denied"         2 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git commit --no-verify -m x\"}}"
+# every way of spelling a commit reaches the gate; --no-verify makes "recognised" visible as exit 2
+bash_cmd() { jq -nc --arg c "$1" --arg d "$tmp" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}'; }
+for c in 'git -c user.name=x commit --no-verify -m x' 'git --no-pager commit --no-verify -m x' \
+         "bash -c 'git commit --no-verify -m x'" 'sh -c "git commit --no-verify -m x"' \
+         $'cd /tmp\ngit commit --no-verify -m x' 'env A=1 git commit --no-verify -m x' \
+         '(git commit --no-verify -m x)' '/usr/bin/git commit --no-verify -m x'; do
+  check "commit: recognised: ${c//$'\n'/\\n}" 2 $C "$(bash_cmd "$c")"
+done
+for c in 'git log --grep commit' 'git status && echo commit' 'legit commit --no-verify'; do
+  check "commit: not a commit: $c" 0 $C "$(bash_cmd "$c")"
+done
 check "commit: source without tests denied" 2 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git commit -m 'add a'\"}}"
 check "commit: [no-tests] escape passes"   0 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git commit -m 'add a [no-tests] config only'\"}}"
 echo "def test_a(): pass" > "$tmp/tests/test_a.py"; git -C "$tmp" add -A
