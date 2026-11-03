@@ -131,7 +131,21 @@ Nothing is installed. Read the upstream files freely, extract the rules behind t
 
 Cost of this route: first versions will be worse than the iterated upstream wording for a few rounds. Comparing against the originals on the same spec or task closes the gap faster than guessing.
 
-Build: three lane skills, five agent files, seven hook scripts, `harness.toml` loader, the `harness` CLI (`worktree new`, `dep add`, `merge`, `test unit|full`), `claude plugin eval` cases for the hooks.
+Build: three lane skills, the `state` skill, five agent files, seven hook scripts, `harness.toml` loader, the `harness` CLI (`worktree new`, `dep add`, `merge`, `test unit|full`), `claude plugin eval` cases for the hooks.
+
+## 6b. Works with Ionian Brain
+
+Harness and Brain are separate Ionian products that complement each other. A PM can use Brain without Harness; a developer can use Harness without Brain. Harness never reads or writes a brain. Brain points at repo files and never copies engineering detail.
+
+| | Brain | Harness |
+|---|---|---|
+| Truth | PM layer: status summary, owners, dates, people, decisions in force; data in `$IONIAN_HOME/brain` | Engineering state in the code repo: specs in `docs/designs/<slug>.md`, plans, git, and the `STATE.md` handoff |
+| Session end | `brain:handover`, which reads `STATE.md` if present | `state` skill rewrites `STATE.md`; it runs first |
+| Repo artefacts | None; it links to repo files | `STATE.md`, `docs/designs/`, `harness.toml` |
+| Coexistence | The read gate never blocks a Brain skill (Brain reads only the top of logs) | The commit gate acts only in repos with a harness config, so a brain folder is never gated |
+| Names | `brain:brief`, `brain:handover` | `ionian-harness:state`, `spec-draft`, `spec-review`, `tdd` |
+
+Order at the end of a session in a repo: `state`, then `brain:handover`. `tests/compat-brain.sh` checks this by hand (it costs tokens and is not part of `tests/run.sh`).
 
 ## 6a. Why not just install the parts
 
