@@ -5,7 +5,9 @@
 # config.sh <repo-dir> --exists: exit 0 if either file exists, 1 if neither.
 repo="$1"; key="$2"; default="$3"
 name="$(basename "$repo")"
-home_cfg="${IONIAN_HOME:-$HOME/Ionian}/harness/$name.toml"
+ih="${IONIAN_HOME:-$HOME/Ionian}"
+case "$ih" in "~"|"~/"*) ih="$HOME${ih#"~"}" ;; esac  # a literal leading ~ expands against HOME
+home_cfg="$ih/harness/$name.toml"
 if [ "$key" = "--exists" ]; then
   [ -f "$repo/harness.toml" ] || [ -f "$home_cfg" ]; exit
 fi

@@ -7,7 +7,7 @@ updated: 2026-11-03
 A plugin (Claude Code first, Copilot later) that makes agent-built code trustworthy without ceremony: one coordinator thread, zero-context workers, hook-enforced gates. Design in `CONCEPT.md`.
 
 ## Active workstream
-Milestone 1, bare floor. Done: read gate, reader, commit gate, config loader, spec skills with three reviewers, tdd skill, 45 checks in `bash tests/run.sh`. Installed at user level (`~/.claude/skills/ionian-harness` symlink). Remaining: two weeks on the pilot repo.
+Milestone 1, bare floor. Done: read gate, reader, commit gate, config loader, spec skills with three reviewers, tdd skill, 61 checks in `bash tests/run.sh`. Installed at user level (`~/.claude/skills/ionian-harness` symlink). Remaining: two weeks on the pilot repo.
 
 ## Architecture
 - `.claude-plugin/plugin.json`: manifest, MIT; loads as `ionian-harness@skills-dir` through the symlink.
@@ -26,12 +26,12 @@ Milestone 1, bare floor. Done: read gate, reader, commit gate, config loader, sp
 - Protective gates fail closed, token-saving gates fail open.
 - Spec reviewers are agent files: pinned model, read-only tools, an exemptable `agent_type`.
 - Dispatch to reviewers carries paths only; re-audit adds prior findings without resolutions.
-- Own wording throughout, so no `THIRD_PARTY.md` yet.
+- Own wording, so no `THIRD_PARTY.md`.
 
 ## Debt
-- Read gate gaps in `docs/study/shunt.md` (`2>/dev/null`, quoted paths, chains, large `head -n`).
+- Read gate open: `<` redirect, `sed -n`, `awk`, `$( )`. Pinned: outside git the counter sits in `/tmp/harness`.
 - Commit gate blind to `g=git; $g commit` (commands built from variables).
-- `lib/config.sh` flat TOML, no `~` expansion in `IONIAN_HOME`. Secret scan untested live. No `claude plugin eval` cases.
+- `lib/config.sh` flat TOML. Secret scan untested live. No `claude plugin eval` cases.
 
 ## Next
 Two weeks of use on the pilot repo (Ionian Flow, after its migration), then the milestone 1 lessons entry. Headless plugin checks: `claude -p --plugin-dir . --output-format stream-json --verbose`.

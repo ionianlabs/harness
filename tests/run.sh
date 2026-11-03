@@ -28,6 +28,29 @@ check "bash: cat big denied"               2 $R "{\"tool_name\":\"Bash\",\"sessi
 check "bash: cat | head passes"            0 $R "{\"tool_name\":\"Bash\",\"session_id\":\"t2\",\"tool_input\":{\"command\":\"cat $tmp/big.txt | head -3\"}}"
 check "bash: head -n passes"               0 $R "{\"tool_name\":\"Bash\",\"session_id\":\"t2\",\"tool_input\":{\"command\":\"head -n 5 $tmp/big.txt\"}}"
 check "bash: head without -n denied"       2 $R "{\"tool_name\":\"Bash\",\"session_id\":\"t2\",\"tool_input\":{\"command\":\"head $tmp/big.txt\"}}"
+bcmd() { jq -nc --arg c "$1" --arg d "$tmp" --argjson n "$n" '{tool_name:"Bash",session_id:("tb"+($ARGS.named.n|tostring)+"-'"$$"'"),cwd:$d,tool_input:{command:$c}}'; }
+check "bash: cat big 2>/dev/null denied"   2 $R "$(bcmd "cat $tmp/big.txt 2>/dev/null")"
+check "bash: cat big > file passes"        0 $R "$(bcmd "cat $tmp/big.txt > $tmp/out.txt")"
+cp "$tmp/big.txt" "$tmp/big file.txt"; cp "$tmp/small.txt" "$tmp/small file.txt"
+check "bash: cat quoted big path denied"   2 $R "$(bcmd "cat \"$tmp/big file.txt\"")"
+check "bash: cat quoted small path passes" 0 $R "$(bcmd "cat '$tmp/small file.txt'")"
+mkdir "$tmp/sub"; cp "$tmp/big.txt" "$tmp/sub/deep.txt"
+check "bash: cd sub && cat big denied"     2 $R "$(bcmd "cd sub && cat deep.txt")"
+check "bash: true; cat big denied"         2 $R "$(bcmd "true; cat $tmp/big.txt")"
+check "bash: cd dir && cat small passes"   0 $R "$(bcmd "cd $tmp && cat small.txt")"
+check "bash: chain with a pipe passes"     0 $R "$(bcmd "cd $tmp && cat big.txt | head -3")"
+check "bash: echo with ; in quotes passes" 0 $R "$(bcmd "echo \"x; cat $tmp/big.txt\"")"
+check "bash: head -n 5000 big denied"      2 $R "$(bcmd "head -n 5000 $tmp/big.txt")"
+check "bash: tail -n 400 big denied"       2 $R "$(bcmd "tail -n 400 $tmp/big.txt")"
+check "bash: head -n 350 big passes"       0 $R "$(bcmd "head -n 350 $tmp/big.txt")"
+check "bash: head -3 big passes"           0 $R "$(bcmd "head -3 $tmp/big.txt")"
+check "bash: tail -n5 big passes"          0 $R "$(bcmd "tail -n5 $tmp/big.txt")"
+check "bash: head -n 5000 small passes"    0 $R "$(bcmd "head -n 5000 $tmp/small.txt")"
+# read: documented gap: outside a git repo the denial counter lives in /tmp/harness (shared by every non-git cwd); kept because a per-user path would need a decision on cleanup
+ng="$(mktemp -d)"; rm -f /tmp/harness/denials-gapsess
+(cd "$ng" && echo "{\"tool_name\":\"Read\",\"session_id\":\"gapsess\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash "$OLDPWD/$R" >/dev/null 2>&1)
+if [ -f /tmp/harness/denials-gapsess ]; then echo "ok   read: documented gap: state outside git lives in /tmp/harness"; else echo "FAIL read: documented gap: state outside git lives in /tmp/harness"; fail=1; fi
+n=$((n+1)); rm -rf "$ng"
 for i in 1 2 3; do echo "{\"tool_name\":\"Read\",\"session_id\":\"t3\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash $R >/dev/null 2>&1; done
 check "read: loop guard, 4th passes"       0 $R "{\"tool_name\":\"Read\",\"session_id\":\"t3\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}"
 # commit gate, in a throwaway repo with its own harness.toml
@@ -94,6 +117,8 @@ printf '[test]\nunit = "fromhome"\n' > "$h2/Ionian/harness/$nm.toml"
 [ "$(HOME="$h2" lib/config.sh "$rn" test.unit)" = "fromhome" ] && echo "ok   config: default ~/Ionian/harness" || { echo "FAIL config: default ~/Ionian/harness"; fail=1; }
 printf '[test]\nunit = "fromihome"\n' > "$ih/harness/$nm.toml"
 [ "$(HOME="$h2" IONIAN_HOME="$ih" lib/config.sh "$rn" test.unit)" = "fromihome" ] && echo "ok   config: IONIAN_HOME overrides default" || { echo "FAIL config: IONIAN_HOME overrides default"; fail=1; }
+mkdir -p "$h2/x/harness"; printf '[test]\nunit = "fromtilde"\n' > "$h2/x/harness/$nm.toml"
+[ "$(HOME="$h2" IONIAN_HOME='~/x' lib/config.sh "$rn" test.unit)" = "fromtilde" ] && echo "ok   config: IONIAN_HOME ~ expands against HOME" || { echo "FAIL config: IONIAN_HOME ~ expands against HOME"; fail=1; }
 h3="$(mktemp -d "$fresh/home.XXXXXX")"; mkdir -p "$h3/.config/harness"
 printf '[test]\nunit = "old"\n' > "$h3/.config/harness/$nm.toml"
 [ -z "$(HOME="$h3" lib/config.sh "$rn" test.unit)" ] && echo "ok   config: old ~/.config/harness not read" || { echo "FAIL config: old ~/.config/harness not read"; fail=1; }

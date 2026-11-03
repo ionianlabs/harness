@@ -23,7 +23,11 @@ log="$state_dir/gate.log"
 summary="$(jq -r '.tool_input | (.file_path // .command // "") + (if .offset or .limit then " [offset=\(.offset // "-") limit=\(.limit // "-")]" else "" end)' <<<"$payload")"
 echo "$(date +%H:%M:%S) agent=${agent:-main} tool=$tool $summary" >> "$log"
 
-lines_of() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+base="$(jq -r '.cwd // empty' <<<"$payload")"; [ -n "$base" ] || base="$PWD"
+lines_of() {  # relative paths resolve against the payload cwd, moved by any cd in the command
+  local f="$1"; case "$f" in /*) ;; *) f="$base/$f" ;; esac
+  if [ -f "$f" ]; then wc -l < "$f" | tr -d ' '; else echo 0; fi
+}
 
 deny() {  # $1 file  $2 line count
   local n
@@ -51,17 +55,33 @@ case "$tool" in
     ;;
   Bash)
     cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
+    # redirects to /dev/null or another fd hide nothing; a redirect to a file still passes
+    cmd="$(sed -E 's/[0-9&]*>>?[[:space:]]*\/dev\/null//g; s/[0-9]>&[0-9]//g' <<<"$cmd")"
     case "$cmd" in *"|"*|*">"*) exit 0 ;; esac
-    whole=0
-    if [[ "$cmd" =~ ^[[:space:]]*(cat|less|more)[[:space:]] ]]; then whole=1; fi
-    if [[ "$cmd" =~ ^[[:space:]]*(head|tail)[[:space:]] ]] && [[ ! "$cmd" =~ \ -[nc] ]]; then whole=1; fi
-    if [ "$whole" = 1 ]; then
-      for word in $cmd; do
+    # split into simple commands at ; & && || and newlines outside quotes, in order, tracking cd
+    while IFS= read -r seg; do
+      if [[ "$seg" =~ ^[[:space:]]*cd[[:space:]]+([^[:space:]]+) ]]; then
+        t="${BASH_REMATCH[1]}"; case "$t" in /*) base="$t" ;; *) base="$base/$t" ;; esac
+        continue
+      fi
+      whole=0
+      if [[ "$seg" =~ ^[[:space:]]*(cat|less|more)[[:space:]] ]]; then whole=1; fi
+      if [[ "$seg" =~ ^[[:space:]]*(head|tail)[[:space:]] ]]; then
+        # a line count above the limit is a whole-file read; -c and -n +N stay targeted
+        if [[ "$seg" =~ [[:space:]]-(n[[:space:]]*)?([0-9]+)([[:space:]]|$) ]]; then
+          [ "${BASH_REMATCH[2]}" -gt "$LIMIT" ] && whole=1
+        elif [[ ! "$seg" =~ \ -[nc] ]]; then whole=1; fi
+      fi
+      [ "$whole" = 1 ] || continue
+      while IFS= read -r word; do  # xargs splits like a shell, so quoted paths stay whole
         case "$word" in -*|cat|less|more|head|tail) continue ;; esac
         n="$(lines_of "$word")"
         [ "$n" -gt "$LIMIT" ] && deny "$word" "$n"
-      done
-    fi
+      done < <(xargs printf '%s\n' <<<"$seg" 2>/dev/null)
+    done < <(awk '{ q=""; out=""; for (i=1;i<=length($0);i++) { c=substr($0,i,1)
+        if (q!="") { if (c==q) q=""; out=out c } else if (c=="\"" || c=="\x27") { q=c; out=out c }
+        else if (c==";" || c=="&") { print out; out="" } else out=out c }
+      print out }' <<<"$cmd")
     ;;
 esac
 exit 0
