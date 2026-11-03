@@ -1,0 +1,7 @@
+{
+  "name": "ionian-harness",
+  "description": "Ionian Harness: one coordinator thread, context-isolated workers, hook-enforced gates. Milestone 1: read gate and reader agent.",
+  "version": "0.0.1",
+  "author": { "name": "Ionian Labs" },
+  "license": "MIT"
+}
