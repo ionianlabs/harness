@@ -106,5 +106,14 @@ red="$(repo_with '' src/a.py)"; printf '[test]\nunit = "false"\n[security]\nsecr
 HOME="$home" check "commit: -C unconfigured repo left alone from red cwd" 0 $C "$(bash_cmd "git -C $unc commit -m x" "$red")"
 HOME="$home" check "commit: -C relative dir resolved against cwd" 2 $C "$(bash_cmd "git -C ../$(basename "$cfgd") commit -m x" "$unc")"
 HOME="$home" check "commit: -C missing dir falls back to cwd repo" 2 $C "$(bash_cmd "git -C /nonexistent/zz commit -m x" "$cfgd")"
+# --no-verify and -n count only inside the arguments of the git commit itself
+clean="$(repo_with "")"
+check "commit: sed -n before a commit is not --no-verify" 0 $C "$(bash_cmd "sed -n 1p x && git commit -m msg" "$clean")"
+check "commit: -n after commit denied"          2 $C "$(bash_cmd "git commit -n -m x" "$clean")"
+check "commit: --no-verify after message denied" 2 $C "$(bash_cmd "git commit -m x --no-verify" "$clean")"
+check "commit: --no-verify after quoted message denied" 2 $C "$(bash_cmd "git commit -m 'a; b' --no-verify" "$clean")"
+check "commit: quoted text mentioning commit and -n is not --no-verify" 0 $C "$(bash_cmd $'python3 - <<\'EOF\'\nprint("git -C x commit; then -n")\nEOF' "$clean")"
+check "commit: quoted text with -n and a space is not --no-verify" 0 $C "$(bash_cmd $'python3 - <<\'EOF\'\nprint("git -C x commit; then -n now")\nEOF' "$clean")"
+check "commit: -n after a separator is not --no-verify" 0 $C "$(bash_cmd "git commit -m x; ls -n" "$clean")"
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail

@@ -18,6 +18,16 @@ cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
 commit_re='(^|[^[:alnum:]_.-])git([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+commit([^[:alnum:]_-]|$)'
 [[ "$cmd" =~ $commit_re ]] || exit 0
 opts="${BASH_REMATCH[2]}"
+# the arguments of this commit: text after the match, up to the next ; & | newline ) or the quote that encloses it
+m="${BASH_REMATCH[0]}"; pre="${cmd%%"$m"*}${BASH_REMATCH[1]}"; rest="${cmd:$(( ${#pre} - ${#BASH_REMATCH[1]} + ${#m} ))}"
+case "${m: -1}" in [[:alnum:]_-]) ;; *) rest="${m: -1}$rest" ;; esac
+enc=""; for ((i=0; i<${#pre}; i++)); do c="${pre:i:1}"
+  if [ -z "$enc" ]; then case "$c" in \"|\') enc="$c" ;; esac; elif [ "$c" = "$enc" ]; then enc=""; fi; done
+args=""; inq=""; for ((i=0; i<${#rest}; i++)); do c="${rest:i:1}"
+  if [ -n "$inq" ]; then [ "$c" = "$inq" ] && inq=""
+  else case "$c" in ';'|'&'|'|'|')'|$'\n') break ;; esac; [ -n "$enc" ] && [ "$c" = "$enc" ] && break
+    case "$c" in \"|\') inq="$c" ;; esac; fi
+  args="$args$c"; done
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cwd="$(jq -r '.cwd // "."' <<<"$payload")"
@@ -45,7 +55,7 @@ deny() { echo "  -> commit DENIED: $1" >> "$log"; printf 'Commit gate: %s\n' "$1
 echo "$(date +%H:%M:%S) agent=$(jq -r '.agent_type // "main"' <<<"$payload") tool=Bash git commit in $repo" >> "$log"
 
 # 1. no bypass
-[[ "$cmd" =~ --no-verify|[[:space:]]-n([[:space:]]|$) ]] && deny "--no-verify is not allowed. Fix the cause, then commit."
+[[ "$args" =~ --no-verify|[[:space:]]-n([[:space:]]|$) ]] && deny "--no-verify is not allowed. Fix the cause, then commit."
 
 # 2. secrets in staged lines
 secrets="$(cfg security.secrets "gitleaks git --pre-commit --staged --redact --no-banner")"
