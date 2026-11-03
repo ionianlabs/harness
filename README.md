@@ -18,6 +18,18 @@ Harness borrows from the best work I found: the zero-context review from Google'
 - `tests/run.sh`: the hooks' own unit tests, fake payloads in, exit codes out. This repo's `harness.toml` points its commit gate at them.
 - Every decision is logged to `.git/harness/gate.log`.
 
+## Install for yourself (user level)
+
+    ln -s <path-to-harness> ~/.claude/skills/ionian-harness
+
+Loads in every new session as `ionian-harness@skills-dir`; each commit here is live in the next session. The read gate is on everywhere. The commit gate acts only in repos with `harness.toml`, or with `~/.config/harness/<repo>.toml` for repos that must stay untouched, for example:
+
+    [test]
+    unit = "pytest -q tests/unit"
+    dir  = "tests"
+
+Remove with `rm ~/.claude/skills/ionian-harness` (the link only).
+
 ## Try the read gate
 
     cd <path-to-harness> && git init -q
