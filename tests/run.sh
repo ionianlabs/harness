@@ -149,5 +149,24 @@ check "commit: commit-tree with -C denied" 2 $C "$(bash_cmd 'git -C . commit-tre
 for c in 'git log --format=%T' 'git write-tree' 'git rev-parse HEAD^{tree}' 'git show --format=%T -s HEAD'; do
   check "commit: not commit-tree: $c" 0 $C "$(bash_cmd "$c" "$clean")"
 done
+# heredoc bodies fed to a non-shell command are data; fed to a shell (or when unsure) they are still checked
+srcrepo="$(repo_with "" src/a.py)"
+check "commit: python heredoc mentioning commit-tree passes" 0 $C "$(bash_cmd $'python3 - <<\'EOF\'\ns = "`git commit-tree` denied"\nEOF' "$clean")"
+check "commit: python heredoc mentioning git commit -m skips the suite rule" 0 $C "$(bash_cmd $'python3 - <<\'EOF\'\nprint("git commit -m x")\nEOF' "$srcrepo")"
+check "commit: python heredoc mentioning git commit --no-verify passes" 0 $C "$(bash_cmd $'python3 - <<\'EOF\'\nprint("git commit --no-verify -m x")\nEOF' "$clean")"
+check "commit: bash heredoc with commit-tree denied" 2 $C "$(bash_cmd $'bash <<EOF\ngit commit-tree HEAD^{tree}\nEOF' "$clean")"
+check "commit: sh heredoc with git commit --no-verify denied" 2 $C "$(bash_cmd $'sh <<\'X\'\ngit commit --no-verify -m x\nX' "$clean")"
+check "commit: bash -s heredoc with commit-tree denied" 2 $C "$(bash_cmd $'bash -s <<"X"\ngit commit-tree HEAD^{tree}\nX' "$clean")"
+check "commit: env bash heredoc with commit-tree denied" 2 $C "$(bash_cmd $'env A=1 bash <<EOF\ngit commit-tree HEAD^{tree}\nEOF' "$clean")"
+check "commit: bash 2>&1 heredoc with commit-tree denied" 2 $C "$(bash_cmd $'bash 2>&1 <<EOF\ngit commit-tree HEAD^{tree}\nEOF' "$clean")"
+check "commit: <<- python heredoc passes" 0 $C "$(bash_cmd $'python3 - <<-EOF\n\tgit commit-tree x\n\tEOF' "$clean")"
+check "commit: <<- bash heredoc with commit-tree denied" 2 $C "$(bash_cmd $'bash <<-EOF\n\tgit commit-tree x\n\tEOF' "$clean")"
+check "commit: commit after a cat heredoc is still gated" 2 $C "$(bash_cmd $'cat <<EOF > a.txt\ngit commit-tree x\nEOF\ngit commit -m x' "$srcrepo")"
+check "commit: cat heredoc then clean commit passes" 0 $C "$(bash_cmd $'cat <<EOF > a.txt\ngit commit-tree x\nEOF\ngit commit -m x' "$clean")"
+check "commit: two heredocs, shell second, denied" 2 $C "$(bash_cmd $'cat <<A; bash <<B\nhello\nA\ngit commit-tree x\nB' "$clean")"
+check "commit: two heredocs on one line, both data, pass" 0 $C "$(bash_cmd $'cat <<A <<B\ngit commit-tree x\nA\ngit commit-tree y\nB' "$clean")"
+check "commit: heredoc without terminator is still checked" 2 $C "$(bash_cmd $'cat <<EOF\ngit commit-tree x' "$clean")"
+check "commit: heredoc into variable-built command is still checked" 2 $C "$(bash_cmd $'$sh <<EOF\ngit commit-tree x\nEOF' "$clean")"
+check "commit: [no-tests] in a heredoc message still counts" 0 $C "$(bash_cmd $'git commit -F - <<EOF\nchange [no-tests] docs\nEOF' "$srcrepo")"
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail

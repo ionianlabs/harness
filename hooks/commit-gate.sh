@@ -18,6 +18,37 @@ fi
 tool="$(jq -r '.tool_name // ""' <<<"$payload")"
 [ "$tool" = "Bash" ] || exit 0
 cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
+# A heredoc body fed to a non-shell command is data: drop it before any commit check. Fail closed:
+# a body stays when the line before the marker names a shell (also behind env, sudo, docker exec...),
+# a variable or eval/source, when the terminator is missing, or when the marker may sit inside a quote.
+scan=""
+strip_heredocs() {
+  local -a L=() pend=(); local l line rest m p seg t b skip i=0 n j out="" word dash h
+  while IFS= read -r line || [ -n "$line" ]; do L+=("$line"); done <<<"$1"
+  n=${#L[@]}
+  while [ "$i" -lt "$n" ]; do
+    line="${L[i]}"; out+="$line"$'\n'; i=$((i+1)); rest="$line"; p=""; pend=()
+    while [[ "$rest" =~ (^|[^\<])\<\<(-?)[[:space:]]*[\'\"]?([[:alnum:]_.-]+) ]]; do
+      m="${BASH_REMATCH[0]}"; dash="${BASH_REMATCH[2]}"; word="${BASH_REMATCH[3]}"
+      p+="${rest%%"$m"*}${BASH_REMATCH[1]}"; rest="${rest#*"$m"}"
+      seg="${p//&>/>}"; seg="${seg//>&/>}"; seg="${seg//<&/<}"; seg="${seg##*[;&|(\`]}"
+      skip=1; [ -z "${seg//[[:space:]]/}" ] && skip=0
+      [ "$(( $(tr -cd '"' <<<"$p" | wc -c) % 2 ))" = 1 ] && skip=0
+      [ "$(( $(tr -cd "'" <<<"$p" | wc -c) % 2 ))" = 1 ] && skip=0
+      set -f; for t in $seg; do b="${t##*/}"
+        case "$b" in sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|.|*'$'*|*'`'*) skip=0 ;; esac; done; set +f
+      pend+=("$skip|$dash|$word")
+    done
+    for h in ${pend[@]+"${pend[@]}"}; do
+      skip="${h%%|*}"; h="${h#*|}"; dash="${h%%|*}"; word="${h#*|}"
+      for ((j=i; j<n; j++)); do l="${L[j]}"; [ -n "$dash" ] && l="${l#"${l%%[!$'\t']*}"}"; [ "$l" = "$word" ] && break; done
+      if [ "$j" -ge "$n" ]; then break; fi
+      if [ "$skip" = 1 ]; then i=$((j+1)); else for ((; i<=j; i++)); do out+="${L[i]}"$'\n'; done; fi
+    done
+  done
+  scan="$out"
+}
+rawcmd="$cmd"; strip_heredocs "$cmd"; cmd="$scan"
 # `git` as a word anywhere (after a newline, quote, paren, path or prefix command), then global options, then `commit`
 commit_re='(^|[^[:alnum:]_.-])git([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+commit([^[:alnum:]_-]|$)'
 tree_re="${commit_re/commit(/commit-tree(}"
@@ -85,7 +116,7 @@ else
 fi
 
 # 4. source changed without a test change
-if [ "$(cfg gate.require_tests true)" = "true" ] && [[ ! "$cmd" =~ \[no-tests\] ]]; then
+if [ "$(cfg gate.require_tests true)" = "true" ] && [[ ! "$rawcmd" =~ \[no-tests\] ]]; then
   testdir="$(cfg test.dir tests)"
   src_glob="$(cfg gate.source_glob '\.(py|js|ts|tsx|go|rs|sh|rb|java|kt|swift)$')"
   staged="$(git diff --cached --name-only)"
