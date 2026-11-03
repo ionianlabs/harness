@@ -38,8 +38,26 @@ printf '[test]\nunit = "false"\n[security]\nsecrets = "true"\n' > "$tmp/harness.
 check "commit: red unit suite denied"      2 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git commit -m x\"}}"
 printf '[test]\nunit = "true"\n[security]\nsecrets = "false"\n' > "$tmp/harness.toml"
 check "commit: failed secret scan denied"  2 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"cd $tmp && git commit -m x\"}}"
-check "config: reads section.key"          0 lib/config.sh "" 
+# shell scripts under hooks/ and lib/ count as source (docs/designs/commit-gate-shell-tests.md)
+fresh="$(mktemp -d)"
+repo_with() {  # extra harness.toml text, then files to stage; prints the repo dir
+  local d; d="$(mktemp -d "$fresh/r.XXXXXX")"; git -C "$d" init -q
+  printf '[test]\nunit = "true"\ndir = "tests"\n[security]\nsecrets = "true"\n%b' "$1" > "$d/harness.toml"; shift
+  for f in "$@"; do mkdir -p "$d/$(dirname "$f")"; echo x > "$d/$f"; git -C "$d" add "$f"; done
+  echo "$d"
+}
+commit() { echo "{\"tool_name\":\"Bash\",\"cwd\":\"$1\",\"tool_input\":{\"command\":\"git commit -m '$2'\"}}"; }
+d="$(repo_with "" hooks/x.sh)"
+check "commit: hooks/*.sh without tests denied" 2 $C "$(commit "$d" "change x")"
+commit "$d" "change x" | bash $C 2>&1 >/dev/null | grep -qF hooks/x.sh && echo "ok   commit: denial names hooks/x.sh" || { echo "FAIL commit: denial names hooks/x.sh"; fail=1; }
+d="$(repo_with "" lib/y.sh)"
+check "commit: lib/*.sh without tests denied" 2 $C "$(commit "$d" "change y")"
+commit "$d" "change y" | bash $C 2>&1 >/dev/null | grep -qF lib/y.sh && echo "ok   commit: denial names lib/y.sh" || { echo "FAIL commit: denial names lib/y.sh"; fail=1; }
+check "commit: hooks/*.sh plus test passes" 0 $C "$(commit "$(repo_with "" hooks/x.sh tests/x_test.sh)" "change x with test")"
+check "commit: hooks/*.sh [no-tests] passes" 0 $C "$(commit "$(repo_with "" hooks/x.sh)" "change x [no-tests] comment only")"
+check "commit: require_tests false passes"  0 $C "$(commit "$(repo_with '[gate]\nrequire_tests = "false"\n' hooks/x.sh)" "change x")"
+check "config: reads section.key"          0 lib/config.sh ""
 [ "$(lib/config.sh "$tmp" test.unit)" = "true" ] && echo "ok   config: value" || { echo "FAIL config: value"; fail=1; }
 [ "$(lib/config.sh "$tmp" nope.key dflt)" = "dflt" ] && echo "ok   config: default" || { echo "FAIL config: default"; fail=1; }
-rm -rf "$tmp" /tmp/harness
+rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail

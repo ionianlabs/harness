@@ -7,7 +7,7 @@ updated: 2026-11-03
 An installable plugin (Claude Code first, Copilot port later) that makes agent-built code trustworthy without ceremony for small changes: one coordinator thread, zero-context workers, gates enforced by hooks. Design in `CONCEPT.md`.
 
 ## Active workstream
-Milestone 1, bare floor. Done: read gate with Haiku reader agent, commit gate, config loader, spec-draft and spec-review skills with three reviewer agents, hook unit tests (21 checks, `bash tests/run.sh`). Remaining for the floor: TDD skill for the coder, then two weeks of use on the pilot repo before any lane or further role.
+Milestone 1, bare floor. Done: read gate with Haiku reader agent, commit gate, config loader, spec-draft and spec-review skills with three reviewer agents, hook unit tests (26 checks, `bash tests/run.sh`). Remaining for the floor: TDD skill for the coder, then two weeks of use on the pilot repo before any lane or further role.
 
 ## Architecture
 - `.claude-plugin/plugin.json`: manifest, MIT. Skills and agents auto-discovered.
@@ -31,7 +31,6 @@ Milestone 1, bare floor. Done: read gate with Haiku reader agent, commit gate, c
 - Read gate gaps in `docs/study/shunt.md` (`2>/dev/null`, quoted paths, chained commands, large `head -n`, state in /tmp): pin in tests or fix.
 - Skills and reviewer agents not yet run live on a real spec.
 - Exemption assumes plugin agents report bare `agent_type` (verified for `reader` only).
-- Commit gate skips the test-change rule for `hooks/*.sh` and `lib/*.sh`, against the repo rule.
 - `lib/config.sh` flat TOML only. Secret scan untested live. Source glob heuristic. No `claude plugin eval` cases.
 
 ## Next

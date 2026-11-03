@@ -60,7 +60,7 @@ if [ "$(cfg gate.require_tests true)" = "true" ] && [[ ! "$cmd" =~ \[no-tests\] 
   testdir="$(cfg test.dir tests)"
   src_glob="$(cfg gate.source_glob '\.(py|js|ts|tsx|go|rs|sh|rb|java|kt|swift)$')"
   staged="$(git diff --cached --name-only)"
-  src_changed="$(grep -E "$src_glob" <<<"$staged" | grep -v "^$testdir/" | grep -v -E '^(hooks|lib)/.*\.sh$' || true)"
+  src_changed="$(grep -E "$src_glob" <<<"$staged" | grep -v "^$testdir/" || true)"
   tests_changed="$(grep "^$testdir/" <<<"$staged" || true)"
   if [ -n "$src_changed" ] && [ -z "$tests_changed" ]; then
     deny "source files changed but nothing under $testdir/ did. Add or update a test, or put [no-tests] in the commit message with a reason." "$src_changed"
