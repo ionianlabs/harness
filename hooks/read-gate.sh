@@ -1,7 +1,8 @@
 #!/bin/bash
 # Ionian Harness read gate.
 # Denies untargeted reads of large files for the main thread and worker agents.
-# The reader agent is exempt. Targeted reads (offset/limit, pipes, redirects) pass.
+# The reader and the three spec reviewers are exempt: reading whole is their job, and they
+# cannot dispatch the reader. Targeted reads (offset/limit, pipes, redirects) pass.
 # Loop guard: after 3 denials of the same file in one session, the read passes.
 # Mechanism inspired by Spotify's shunt plugin; written from the idea, not the code.
 
@@ -11,7 +12,7 @@ tool="$(jq -r '.tool_name // ""' <<<"$payload")"
 agent="$(jq -r '.agent_type // ""' <<<"$payload")"
 session="$(jq -r '.session_id // "nosession"' <<<"$payload")"
 
-[ "$agent" = "reader" ] && exit 0
+case "$agent" in reader|spec-paraphrase|spec-critic|spec-readiness) exit 0 ;; esac
 
 state_dir="$(git rev-parse --git-dir 2>/dev/null || echo /tmp)/harness"
 mkdir -p "$state_dir"

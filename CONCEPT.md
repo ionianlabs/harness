@@ -22,7 +22,7 @@ Escalation is one-way and cheap: if a `/fix` turns out to need design, the coord
 
 ## 2. Roles and models
 
-Five agent definitions. Flat fan-out from the main thread only, no worker spawns workers (subagent nesting depth is not confirmed in the docs and the design does not need it).
+Four worker definitions plus three spec reviewers. Flat fan-out from the main thread only, no worker spawns workers (subagent nesting depth is not confirmed in the docs and the design does not need it).
 
 | Role | Model | Tools | Does | Never |
 |---|---|---|---|---|
@@ -31,7 +31,7 @@ Five agent definitions. Flat fan-out from the main thread only, no worker spawns
 | coder | Sonnet | Read, Edit, Write, Bash, Grep, Glob | one checklist item per dispatch: failing test first, smallest change that makes it pass, run unit suite, commit | touches dependency manifests, works outside its worktree, declares done without a green run |
 | reviewer | Sonnet | Read, Grep, Glob, Bash (read-only) | reviews the diff of one item against a fixed checklist and returns a punch-list with file and line | edits anything |
 | qa | Sonnet | Read, Edit, Write (tests only), Bash | runs the full suite, writes missing tests, tries to break the change, reports with real output | edits anything outside the test directory (hook-enforced) |
-| goldfish reviewers | Opus | per EGM | spec review in `/build`, reused from the EGM plugin, not rebuilt | |
+| spec reviewers (`spec-paraphrase`, `spec-critic`, `spec-readiness`) | Opus | Read; readiness also Grep, Glob | zero-context spec review in `/build`: paraphrase test, critic, implementation readiness; our own personas after the EGM concept | see anything but the spec, except readiness verifying names in the repo |
 
 Two judgement tiers (Opus thinks, Sonnet builds) plus one reader tier that is a different kind of job, not a third opinion. If a loop step keeps failing on Sonnet, the fix is a better brief or a smaller item, not a bigger model. Upgrade a role only with data.
 
