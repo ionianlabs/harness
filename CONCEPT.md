@@ -31,7 +31,7 @@ Four worker definitions plus three spec reviewers. Flat fan-out from the main th
 | coder | Sonnet | Read, Edit, Write, Bash, Grep, Glob | one checklist item per dispatch: failing test first, smallest change that makes it pass, run unit suite, commit | touches dependency manifests, works outside its worktree, declares done without a green run |
 | reviewer | Sonnet | Read, Grep, Glob, Bash (read-only) | reviews the diff of one item against a fixed checklist and returns a punch-list with file and line | edits anything |
 | qa | Sonnet | Read, Edit, Write (tests only), Bash | runs the full suite, writes missing tests, tries to break the change, reports with real output | edits anything outside the test directory (hook-enforced) |
-| spec reviewers (`spec-paraphrase`, `spec-critic`, `spec-readiness`) | Opus | Read; readiness also Grep, Glob | zero-context spec review in `/build`: paraphrase test, critic, implementation readiness; our own personas after the EGM concept | see anything but the spec, except readiness verifying names in the repo |
+| spec reviewers (`spec-paraphrase`, `spec-critic`, `spec-readiness`) | Opus | Read; critic and readiness also Grep, Glob | zero-context spec review in `/build`: paraphrase test, critic, implementation readiness; our own personas after the EGM concept | see anything but the spec, except the critic searching for reuse and readiness verifying names in the repo |
 
 Two judgement tiers (Opus thinks, Sonnet builds) plus one reader tier that is a different kind of job, not a third opinion. If a loop step keeps failing on Sonnet, the fix is a better brief or a smaller item, not a bigger model. Upgrade a role only with data.
 

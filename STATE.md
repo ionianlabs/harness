@@ -18,7 +18,7 @@ Milestone 1, bare floor. Done: read gate with Haiku reader agent, commit gate, c
 - `agents/reader.md`: Haiku, bullets with line ranges.
 - `skills/spec-draft/`: SKILL.md plus `template.md`; writes `docs/designs/<slug>.md`, never approves.
 - `skills/spec-review/`: round 1 paraphrase then critic and readiness in parallel, one re-audit, forced convergence, user approval. Raw replies in `.git/harness/review/<slug>/`.
-- `agents/spec-*.md`: Opus, Read only (readiness also Grep, Glob), fixed reply formats, Blocker/Major/Nit.
+- `agents/spec-*.md`: Opus, read-only (critic and readiness also Grep, Glob), fixed replies, Blocker/Major/Nit.
 
 ## Decisions
 - Hook payload: main thread `agent_id`/`agent_type` null, subagents carry both. Role gates key on `agent_type`.

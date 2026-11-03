@@ -10,31 +10,36 @@ You are the drafter. You hold the full context: the conversation, the code, what
 
 - Slug: a short kebab-case name for the feature. The target is `docs/designs/<slug>.md`. If it exists, revise it in place and keep its Review section; never start a second file for the same feature.
 - Learn what exists: earlier decisions in `docs/designs/` and `docs/adr/`, and the code the feature touches. Large files go to the `reader` agent, one question each.
-- Ask the user only what the code cannot answer and only the user can decide: scope edges, what is explicitly out, trade-offs with no obvious default. One batch, at most four questions. Decide everything else yourself and record it under Decisions.
+- If `docs/constitution.md` exists, read it. Any decision that conflicts with it is justified under Decisions in the form the template shows.
+- Ask the user one question at a time, at most five in total, ranked by how much the answer changes what gets built: scope first, then security and privacy, then user-visible behaviour, then technical. Each question carries a `Why it matters:` line and your recommended answer. Write each answer into the section it changes right away.
+- What the user is not asked: decide it and record it under Decisions, or take an informed guess and record it under Assumptions. Only what cannot be guessed and only the user can decide becomes a `[NEEDS CLARIFICATION: <question>]` marker (rules below).
 
 ## 2. Write
 
 Copy `template.md` from this skill folder to the target and fill it in.
 
 - Self-contained. No "as discussed", no references to the chat, no "the usual way". If it matters, it is on the page.
+- Every feature has a priority (P1, P2, ...) and the features are ordered by it. F1 alone is a usable slice: buildable, testable and worth shipping without the others. Each later feature stands on its own on top of the ones before it.
 - Every feature has a why that follows from the Problem. A feature whose why is "nice to have" is cut or moved to Out of scope.
-- Every feature has at least one Given/When/Then scenario with concrete values, and a testability note: unit, integration or manual, and the observable result that proves it. The coder writes these scenarios as the first failing tests, so a scenario that cannot become a test is not finished.
+- Every feature has numbered scenarios (`F1.1`, `F1.2`) with concrete values, and a testability line: unit, integration or manual, what the test does on its own, and the observable result. Ids are unique and never reused after a deletion. The coder writes these scenarios as the first failing tests, so a scenario that cannot become a test is not finished.
+- Success criteria (`SC1`, ...) state measurable outcomes with a unit or threshold and name no technology.
 - Name things exactly. Files, functions, commands, config keys, formats: existing names as they appear in the repo, new names marked `(new)`.
 - For anything that comes from outside (user input, files, network, other processes), say what happens on bad input and on failure.
 - Define each domain term once under Terms and use it the same way throughout.
 - No number without a unit, no "fast", "large" or "robust" without a threshold.
 - What, not how. Interfaces and data shapes belong here because they are decisions; file-by-file steps belong in the plan, which comes after approval.
+- Markers: put `[NEEDS CLARIFICATION: <question>]` exactly where the missing value would go. At most 3 per spec; choose by the ranking in section 1. Beyond 3, record an informed guess under Assumptions as `<assumption>. If wrong: <what changes>.`
+- Terms, Decisions and Assumptions are optional: delete a section with no content, never write "N/A". Dependencies says "none" when there are none.
 - Short. Aim for under 200 lines. Over 300 usually means two features: split into two specs and say which comes first.
-- Open questions are allowed in a draft. Each one names what it blocks.
 
 ## 3. Self-check
 
-Answer each with yes, or fix the spec first:
-- Could a stranger state the problem in one sentence from the Problem section alone?
-- Does every feature have a why, a scenario with concrete values and a testability note?
-- Is everything a reader could assume is included, and is not, listed under Out of scope?
-- Is every name either found in the repo or marked `(new)`?
-- Does any sentence depend on something said only in this conversation?
+Do not grade your own spec on judgment. You wrote it and will agree with it; the zero-context reviewers do that. Check only what is mechanical, and fix before moving on:
+- Every feature has a priority, a why, at least one numbered scenario and a testability line.
+- Success criteria are present, no optional section is empty, and there are at most 3 markers.
+- Every name is found in the repo or marked `(new)`.
+
+Then one reconciliation only you can do, because no reviewer sees the conversation: every requirement and constraint the user stated appears in the spec as a feature, scenario, success criterion, decision, assumption or Out of scope item. Nothing the user said may exist only in the chat.
 
 ## 4. Hand off
 
