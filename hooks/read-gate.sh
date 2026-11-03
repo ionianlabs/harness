@@ -12,7 +12,8 @@ tool="$(jq -r '.tool_name // ""' <<<"$payload")"
 agent="$(jq -r '.agent_type // ""' <<<"$payload")"
 session="$(jq -r '.session_id // "nosession"' <<<"$payload")"
 
-case "$agent" in reader|spec-paraphrase|spec-critic|spec-readiness) exit 0 ;; esac
+# plugin agents arrive as ionian-harness:<name>; only our own prefix is stripped
+case "${agent#ionian-harness:}" in reader|spec-paraphrase|spec-critic|spec-readiness) exit 0 ;; esac
 
 state_dir="$(git rev-parse --git-dir 2>/dev/null || echo /tmp)/harness"
 mkdir -p "$state_dir"
