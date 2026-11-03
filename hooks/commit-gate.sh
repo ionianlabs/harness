@@ -39,6 +39,9 @@ strip_heredocs() {
         case "$b" in sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|.|*'$'*|*'`'*) skip=0 ;; esac; done; set +f
       pend+=("$skip|$dash|$word")
     done
+    # a shell anywhere else on the marker line (a pipe or chain after the marker) keeps every body on it checked
+    set -f; for t in $line; do b="${t##*/}"
+      case "$b" in sh|bash|zsh|dash|ksh|ash|csh|tcsh|fish|eval|source|.|*'$'*|*'`'*) for ((j=0; j<${#pend[@]}; j++)); do pend[j]="0|${pend[j]#*|}"; done ;; esac; done; set +f
     for h in ${pend[@]+"${pend[@]}"}; do
       skip="${h%%|*}"; h="${h#*|}"; dash="${h%%|*}"; word="${h#*|}"
       for ((j=i; j<n; j++)); do l="${L[j]}"; [ -n "$dash" ] && l="${l#"${l%%[!$'\t']*}"}"; [ "$l" = "$word" ] && break; done

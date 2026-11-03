@@ -168,5 +168,11 @@ check "commit: two heredocs on one line, both data, pass" 0 $C "$(bash_cmd $'cat
 check "commit: heredoc without terminator is still checked" 2 $C "$(bash_cmd $'cat <<EOF\ngit commit-tree x' "$clean")"
 check "commit: heredoc into variable-built command is still checked" 2 $C "$(bash_cmd $'$sh <<EOF\ngit commit-tree x\nEOF' "$clean")"
 check "commit: [no-tests] in a heredoc message still counts" 0 $C "$(bash_cmd $'git commit -F - <<EOF\nchange [no-tests] docs\nEOF' "$srcrepo")"
+# a shell reached through the rest of the marker line (pipe, chain) keeps the body checked
+check "commit: cat heredoc piped to bash denied" 2 $C "$(bash_cmd $'cat <<EOF | bash\ngit commit --no-verify -m x\nEOF' "$clean")"
+check "commit: cat heredoc piped to sh -s denied" 2 $C "$(bash_cmd $'cat <<EOF | sh -s\ngit commit-tree x\nEOF' "$clean")"
+check "commit: cat heredoc to file then bash file denied" 2 $C "$(bash_cmd $'cat <<EOF > run.sh && bash run.sh\ngit commit-tree x\nEOF' "$clean")"
+check "commit: cat heredoc to notes.md passes" 0 $C "$(bash_cmd $'cat <<EOF > notes.md\ngit commit-tree x\nEOF' "$clean")"
+check "commit: python heredoc printing commit-tree passes" 0 $C "$(bash_cmd $'python3 - <<EOF\nprint("git commit-tree x")\nEOF' "$clean")"
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail
