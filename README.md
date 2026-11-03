@@ -1,10 +1,10 @@
 # Ionian Harness
 
-Build. The agentic engineering setup I use to build with agents: one coordinator thread, context-isolated workers, gates enforced by hooks rather than by instruction.
+Build. The agentic engineering setup we use to build with agents: one coordinator thread, context-isolated workers, gates enforced by hooks rather than by instruction.
 
 Status: milestone 1. Read gate, reader agent, commit gate, config loader, spec-draft, spec-review and tdd skills. Not ready for use.
 
-Harness borrows from the best work I found: the zero-context review from Google's EGM, the TDD discipline from superpowers, the read gate from Spotify's shunt, the document shapes from spec-kit. I read them, learned, and built my own version. Where I kept their words, they are marked.
+Harness borrows from the best work we found: the zero-context review from Google's EGM, the TDD discipline from superpowers, the read gate from Spotify's shunt, the document shapes from spec-kit. We read them, learned, and built our own version. Where we kept their words, they are marked.
 
 ## What is here
 

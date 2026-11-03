@@ -50,7 +50,7 @@ Stop rule for the autonomous part: in `/build` and `/change` a Stop hook keeps t
 
 ## 4. The floor: hooks that are always on
 
-Each one maps to an incident in the source notes. Each runs as a small shell script reading the hook payload, and exits 2 with a reason the model sees.
+Each one maps to a failure mode seen in practice. Each runs as a small shell script reading the hook payload, and exits 2 with a reason the model sees.
 
 | Hook | Event and matcher | Rule | Incident |
 |---|---|---|---|
@@ -117,7 +117,7 @@ Lookup order: repo root, then `$IONIAN_HOME/harness/<repo-name>.toml` (default `
 
 ## 6. Borrow the concepts, write the files ourselves
 
-Nothing is installed. Read the upstream files freely, extract the rules behind them, write our own versions from understanding, then compare against the originals and keep what tests better. Ideas and methods carry no license obligation; the README says it in the Ionian voice: "Harness borrows from the best work I found: the zero-context review from Google's EGM, the TDD discipline from superpowers, the read gate from Spotify's shunt, the document shapes from spec-kit. I read them, learned, and built my own version. Where I kept their words, they are marked." Where a passage is deliberately kept close to the original because rewriting would make it worse (EGM's anti-sycophancy rules are a candidate), it is marked in the file and carries that upstream's copyright and license notice in `THIRD_PARTY.md`. The only line that matters is at the output: text that reads as theirs is marked as theirs. "Elephant and goldfish" is credited as the concept followed (Rensin, Google EGM), never used as a product or role name.
+Nothing is installed. Read the upstream files freely, extract the rules behind them, write our own versions from understanding, then compare against the originals and keep what tests better. Ideas and methods carry no license obligation; the README says it in the Ionian voice: "Harness borrows from the best work we found: the zero-context review from Google's EGM, the TDD discipline from superpowers, the read gate from Spotify's shunt, the document shapes from spec-kit. We read them, learned, and built our own version. Where we kept their words, they are marked." Where a passage is deliberately kept close to the original because rewriting would make it worse (EGM's anti-sycophancy rules are a candidate), it is marked in the file and carries that upstream's copyright and license notice in `THIRD_PARTY.md`. The only line that matters is at the output: text that reads as theirs is marked as theirs. "Elephant and goldfish" is credited as the concept followed (Rensin, Google EGM), never used as a product or role name.
 
 | Concept | From | How it appears here |
 |---|---|---|
