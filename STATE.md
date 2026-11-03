@@ -7,7 +7,7 @@ updated: 2026-11-03
 A plugin (Claude Code first, Copilot later) that makes agent-built code trustworthy without ceremony: one coordinator thread, zero-context workers, hook-enforced gates. Design in `CONCEPT.md`.
 
 ## Active workstream
-Milestone 1 floor built, hardened and in daily use at user level; next is the pilot. Latest: commit gate covers `git -C`, `commit-tree`, unparseable payloads and heredoc bodies; secret scan tested live with gitleaks; repo publishable (Ionian Labs author, MIT `LICENSE`) behind a local pre-push leak guard. `state` skill and CONCEPT 6b define the Brain contract, checked by `tests/compat-brain.sh`. 107 checks in `bash tests/run.sh`.
+Milestone 1 floor built, hardened, in daily use; next is the pilot. Latest: commit gate covers `git -C`, `commit-tree`, unparseable payloads and heredoc bodies; secret scan tested live with gitleaks; repo publishable (Ionian Labs author, MIT `LICENSE`) behind a local pre-push leak guard. `state` skill and CONCEPT 6b define the Brain contract, checked by `tests/compat-brain.sh`. 107 checks in `bash tests/run.sh`.
 
 ## Architecture
 - `.claude-plugin/plugin.json`: manifest, MIT; skills and agents auto-discovered.
@@ -29,7 +29,7 @@ Milestone 1 floor built, hardened and in daily use at user level; next is the pi
 - Own wording throughout, so no `THIRD_PARTY.md` yet.
 
 ## Debt
-- Read gate open: `<` redirect, `sed -n`, `awk`, `$( )`. Pinned: outside git the counter sits in `/tmp/harness`.
+- Read gate open: `<` redirect, `sed -n`, `awk`, `$( )`. Outside git the counter sits in `/tmp/harness`.
 - Commit gate blind to `g=git; $g commit` (commands built from variables) and to a heredoc written to a file that a later line runs with a shell.
 - `lib/config.sh` flat TOML. No `claude plugin eval` cases.
 - Secret scan is skipped, logged only, when gitleaks is missing; its denial does not name the file. Suite runs near its 30 s budget.
