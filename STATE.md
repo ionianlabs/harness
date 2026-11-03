@@ -7,7 +7,7 @@ updated: 2026-11-03
 A plugin (Claude Code first, Copilot later) that makes agent-built code trustworthy without ceremony: one coordinator thread, zero-context workers, hook-enforced gates. Design in `CONCEPT.md`.
 
 ## Active workstream
-Milestone 1 floor built and in daily use at user level. This session: commit gate hardened (`git -C`, bypass flags read from the commit's own arguments, unparseable payload denied, `commit-tree` denied), read gate closes the `shunt.md` gaps, home config under `$IONIAN_HOME/harness/`, `state` skill, CONCEPT section 6b "Works with Ionian Brain", `tests/compat-brain.sh` (5/5 pass), repo rules moved to `AGENTS.md`. 80 checks in `bash tests/run.sh`. Remaining: two weeks on the pilot repo.
+Milestone 1 floor built and in daily use at user level. This session: commit gate hardened (`git -C`, bypass flags read from the commit's own arguments, unparseable payload denied, `commit-tree` denied, heredoc bodies fed to non-shell commands read as data), read gate closes the gaps found in shunt's edge cases, home config under `$IONIAN_HOME/harness/`, `state` skill, CONCEPT section 6b "Works with Ionian Brain", `tests/compat-brain.sh` (5/5 pass), repo rules moved to `AGENTS.md`, repo made publishable (Ionian Labs author, MIT `LICENSE`). 102 checks in `bash tests/run.sh`. Remaining: two weeks on the pilot repo.
 
 ## Architecture
 - `.claude-plugin/plugin.json`: manifest, MIT; skills and agents auto-discovered.
@@ -30,7 +30,7 @@ Milestone 1 floor built and in daily use at user level. This session: commit gat
 
 ## Debt
 - Read gate open: `<` redirect, `sed -n`, `awk`, `$( )`. Pinned: outside git the counter sits in `/tmp/harness`.
-- Commit gate blind to `g=git; $g commit` (commands built from variables).
+- Commit gate blind to `g=git; $g commit` (commands built from variables) and to a heredoc written to a file that a later line runs with a shell.
 - `lib/config.sh` flat TOML. Secret scan untested live. No `claude plugin eval` cases.
 
 ## Next
