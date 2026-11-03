@@ -20,7 +20,9 @@ tool="$(jq -r '.tool_name // ""' <<<"$payload")"
 cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
 # `git` as a word anywhere (after a newline, quote, paren, path or prefix command), then global options, then `commit`
 commit_re='(^|[^[:alnum:]_.-])git([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|-[^[:space:]]+))*[[:space:]]+commit([^[:alnum:]_-]|$)'
-[[ "$cmd" =~ $commit_re ]] || exit 0
+tree_re="${commit_re/commit(/commit-tree(}"
+tree=0
+if [[ "$cmd" =~ $tree_re ]]; then tree=1; elif [[ ! "$cmd" =~ $commit_re ]]; then exit 0; fi
 opts="${BASH_REMATCH[2]}"
 # the arguments of this commit: text after the match, up to the next ; & | newline ) or the quote that encloses it
 m="${BASH_REMATCH[0]}"; pre="${cmd%%"$m"*}${BASH_REMATCH[1]}"; rest="${cmd:$(( ${#pre} - ${#BASH_REMATCH[1]} + ${#m} ))}"
@@ -57,6 +59,8 @@ log="$state/gate.log"
 
 deny() { echo "  -> commit DENIED: $1" >> "$log"; printf 'Commit gate: %s\n' "$1" >&2; [ -n "$2" ] && printf '%s\n' "$2" | tail -n 25 >&2; exit 2; }
 echo "$(date +%H:%M:%S) agent=$(jq -r '.agent_type // "main"' <<<"$payload") tool=Bash git commit in $repo" >> "$log"
+
+[ "$tree" = 1 ] && deny "git commit-tree creates commits without running the gate. Stage the files with git add, then run a plain git commit -m \"message\"."
 
 # 1. no bypass
 [[ "$args" =~ --no-verify|[[:space:]]-n([[:space:]]|$) ]] && deny "--no-verify is not allowed. Fix the cause, then commit."

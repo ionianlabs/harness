@@ -118,5 +118,11 @@ check "commit: -n after a separator is not --no-verify" 0 $C "$(bash_cmd "git co
 # an unparseable payload is judged like the no-jq case: denied only when it looks like a commit
 check "commit: invalid JSON that looks like a commit denied" 2 $C '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"'
 check "commit: invalid JSON that is no commit passes" 0 $C '{"tool_name":"Bash","tool_input":{"command":"git status"'
+# git commit-tree makes commits without any hook, so it is denied; other git commands stay out of the gate
+check "commit: commit-tree denied" 2 $C "$(bash_cmd 'git commit-tree HEAD^{tree} -m x' "$clean")"
+check "commit: commit-tree with -C denied" 2 $C "$(bash_cmd 'git -C . commit-tree abc123 -p HEAD' "$clean")"
+for c in 'git log --format=%T' 'git write-tree' 'git rev-parse HEAD^{tree}' 'git show --format=%T -s HEAD'; do
+  check "commit: not commit-tree: $c" 0 $C "$(bash_cmd "$c" "$clean")"
+done
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail

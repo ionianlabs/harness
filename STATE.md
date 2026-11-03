@@ -30,8 +30,7 @@ Milestone 1, bare floor. Done: read gate, reader, commit gate, config loader, sp
 
 ## Debt
 - Read gate gaps in `docs/study/shunt.md` (`2>/dev/null`, quoted paths, chains, large `head -n`).
-- Commit gate fails open on an unparseable payload; blind to `git commit-tree` and `g=git; $g commit`.
-- Commit gate misfires (seen live): checks the cwd repo for `git -C <other> commit`; `sed -n` or quoted text in a compound command reads as a commit with `--no-verify`.
+- Commit gate blind to `g=git; $g commit` (commands built from variables).
 - `lib/config.sh` flat TOML, no `~` expansion in `IONIAN_HOME`. Secret scan untested live. No `claude plugin eval` cases.
 
 ## Next
