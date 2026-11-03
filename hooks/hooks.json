@@ -4,13 +4,13 @@
       {
         "matcher": "Read|Bash",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/read-gate.sh" }
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/read-gate.sh" }
         ]
       },
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/commit-gate.sh", "timeout": 180 }
+          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/commit-gate.sh", "timeout": 180 }
         ]
       }
     ]

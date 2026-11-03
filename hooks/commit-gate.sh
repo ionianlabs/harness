@@ -4,7 +4,13 @@
 # suite from harness.toml, require a test change when source changed. Exit 2 denies,
 # the exit code is the real runner's, nothing is piped into grep.
 
+# This gate protects something, so it fails closed: if it cannot do its job, it denies.
 payload="$(cat)"
+if ! command -v jq >/dev/null 2>&1; then
+  # cannot parse the payload; only deny if this looks like a commit at all
+  grep -q 'git[^"]*commit' <<<"$payload" && { echo "Commit gate: jq is not installed, cannot verify this commit. Install jq (brew install jq)." >&2; exit 2; }
+  exit 0
+fi
 tool="$(jq -r '.tool_name // ""' <<<"$payload")"
 [ "$tool" = "Bash" ] || exit 0
 cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
@@ -21,7 +27,8 @@ fi
 repo="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 state="$(git rev-parse --git-dir 2>/dev/null || echo /tmp)/harness"; mkdir -p "$state"
 log="$state/gate.log"
-cfg() { "$here/lib/config.sh" "$repo" "$1" "$2"; }
+[ -f "$here/lib/config.sh" ] || { echo "Commit gate: lib/config.sh missing at $here, refusing to commit unverified." >&2; exit 2; }
+cfg() { bash "$here/lib/config.sh" "$repo" "$1" "$2"; }
 
 deny() { echo "  -> commit DENIED: $1" >> "$log"; printf 'Commit gate: %s\n' "$1" >&2; [ -n "$2" ] && printf '%s\n' "$2" | tail -n 25 >&2; exit 2; }
 echo "$(date +%H:%M:%S) agent=$(jq -r '.agent_type // "main"' <<<"$payload") tool=Bash git commit in $repo" >> "$log"
