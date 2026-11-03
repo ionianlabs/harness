@@ -1,0 +1,14 @@
+# Ionian Harness config for this repo (the harness tests itself).
+[test]
+unit = "bash tests/run.sh"
+full = "bash tests/run.sh"
+dir  = "tests"
+
+[security]
+secrets = "gitleaks git --pre-commit --staged --redact --no-banner"
+
+[gate]
+require_tests = true
+
+[limits]
+unit_seconds = 30
