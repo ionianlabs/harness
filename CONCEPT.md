@@ -100,7 +100,7 @@ State and artefacts: anything temporary (lane marker, plan progress, last green 
 
 ## 5a. Document formats: spec-kit artefacts, EGM review, one constitution
 
-Steal the formats from [spec-kit](https://github.com/github/spec-kit), not the tool. Three templates: `spec.md` with user stories and Given/When/Then acceptance scenarios (tests waiting to be written), `plan.md` with a constitution check, `tasks.md` with `[P]` markers for parallel-safe items (this is the plan file the coordinator dispatches from). EGM stays the review mechanism over these documents. Spec-kit itself is not installed: its `.specify/` folder, scripts and seven-command workflow would be a second spec phase next to EGM.
+Follow the document shapes that [spec-kit](https://github.com/github/spec-kit) popularised, written as our own templates; the tool itself is not adopted. Three templates: `spec.md` with user stories and Given/When/Then acceptance scenarios (tests waiting to be written), `plan.md` with a constitution check, `tasks.md` with `[P]` markers for parallel-safe items (this is the plan file the coordinator dispatches from). EGM stays the review mechanism over these documents. Spec-kit itself is not installed: its `.specify/` folder, scripts and seven-command workflow would be a second spec phase next to EGM.
 
 `constitution.md` is the quality bar as an artefact: smallest change that passes the test, test before code, reuse before new, no dependency without ADR, no speculative abstraction, unit suite under 30 seconds. The reviewer and the goldfish read it; the plan is checked against it. Versioned, changed only with a dated reason.
 
@@ -115,11 +115,11 @@ Mechanics, not intentions:
 
 Lookup order: repo root, then `$IONIAN_HOME/harness/<repo-name>.toml` (default `~/Ionian/harness/<repo-name>.toml`) for repos that must stay footprint-free (client code), then auto-detect from `pyproject.toml` or `package.json` with a warning. Missing command means that gate is skipped with a visible notice, never silently. `IONIAN_HOME` is a convention shared across Ionian products: each keeps its data in `$IONIAN_HOME/<product>`, default `~/Ionian/<product>`.
 
-## 6. Borrow the concepts, write the files ourselves
+## 6. Established practices, our own implementation
 
-Nothing is installed. Read the upstream files freely, extract the rules behind them, write our own versions from understanding, then compare against the originals and keep what tests better. Ideas and methods carry no license obligation; the README says it in the Ionian voice: "Harness borrows from the best work we found: the zero-context review from Google's EGM, the TDD discipline from superpowers, the read gate from Spotify's shunt, the document shapes from spec-kit. We read them, learned, and built our own version. Where we kept their words, they are marked." Where a passage is deliberately kept close to the original because rewriting would make it worse (EGM's anti-sycophancy rules are a candidate), it is marked in the file and carries that upstream's copyright and license notice in `THIRD_PARTY.md`. The only line that matters is at the output: text that reads as theirs is marked as theirs. "Elephant and goldfish" is credited as the concept followed (Rensin, Google EGM), never used as a product or role name.
+Nothing is installed. Harness collects the best practices and standards we found and brings them into one setup. Read the source material freely, extract the principles behind it, write our own versions from understanding, then compare against the sources and keep what tests better. Ideas and methods carry no license obligation; the README says it in the Ionian voice: "Harness brings together established practices and standards for building with agents: zero-context review as described in Google's EGM, test-driven development as practised in superpowers, a read gate after Spotify's shunt, and the document formats of spec-kit. Every file is our own implementation. Where a passage stays close to its source, it is marked and credited." Where a passage is deliberately kept close to its source because rewriting would make it worse (EGM's anti-sycophancy rules are a candidate), it is marked in the file and carries that source's copyright and license notice in `THIRD_PARTY.md`. The rule at the output: text that reads as someone else's is marked and credited as theirs. "Elephant and goldfish" is credited as the concept followed (Rensin, Google EGM), never used as a product or role name.
 
-| Concept | From | How it appears here |
+| Practice | Credited to | How it appears here |
 |---|---|---|
 | full-context drafter, zero-context reviewers, paraphrase test, Blocker/Major/Nit, one re-audit then forced convergence | Google EGM | spec-draft and spec-review skills, three stages (paraphrase, critic, readiness); own personas |
 | read gate at a line threshold, targeted reads pass, reader returns structured bullets | Spotify shunt | two hook scripts written from the spec, reader agent, `agent_type` exemption, loop guard |
@@ -129,7 +129,7 @@ Nothing is installed. Read the upstream files freely, extract the rules behind t
 | spec with Given/When/Then, plan with constitution check, tasks with parallel markers, constitution as versioned principles | spec-kit, Gherkin | section 5a templates |
 | `/security-review` | built in | step 6 |
 
-Cost of this route: first versions will be worse than the iterated upstream wording for a few rounds. Comparing against the originals on the same spec or task closes the gap faster than guessing.
+Cost of this route: first versions will be worse than the mature wording of the sources for a few rounds. Comparing against the sources on the same spec or task closes the gap faster than guessing.
 
 Build: three lane skills, the `state` skill, five agent files, seven hook scripts, `harness.toml` loader, the `harness` CLI (`worktree new`, `dep add`, `merge`, `test unit|full`), `claude plugin eval` cases for the hooks.
 

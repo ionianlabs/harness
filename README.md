@@ -4,7 +4,7 @@ Build. The agentic engineering setup we use to build with agents: one coordinato
 
 Status: milestone 1. Read gate, reader agent, commit gate, config loader, spec-draft, spec-review and tdd skills. Not ready for use.
 
-Harness borrows from the best work we found: the zero-context review from Google's EGM, the TDD discipline from superpowers, the read gate from Spotify's shunt, the document shapes from spec-kit. We read them, learned, and built our own version. Where we kept their words, they are marked.
+Harness brings together established practices and standards for building with agents: zero-context review as described in Google's EGM, test-driven development as practised in superpowers, a read gate after Spotify's shunt, and the document formats of spec-kit. Every file is our own implementation. Where a passage stays close to its source, it is marked and credited.
 
 ## What is here
 
