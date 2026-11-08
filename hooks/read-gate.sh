@@ -35,12 +35,19 @@ deny() {  # $1 file  $2 line count
   echo "$1" >> "$counter"
   if [ "$n" -gt 3 ]; then echo "  -> loop guard, allowed" >> "$log"; exit 0; fi
   echo "  -> DENIED ($n/3)" >> "$log"
-  cat >&2 <<MSG
-Read gate: $1 has $2 lines (limit $LIMIT). Do not load it whole.
+  echo "Read gate: $1 has $2 lines (limit $LIMIT). Do not load it whole." >&2
+  if [ -n "$agent" ]; then  # subagents cannot dispatch another agent
+    cat >&2 <<MSG
+Find the part you need with Grep (or grep -n) for a name or string, then Read with
+offset and limit on that range only.
+MSG
+  else
+    cat >&2 <<MSG
 Dispatch the "reader" agent with one precise question about this file and ask for
 line numbers. If you then still need the text, Read with offset and limit on the
 range it names.
 MSG
+  fi
   exit 2
 }
 
@@ -50,6 +57,8 @@ case "$tool" in
     off="$(jq -r '.tool_input.offset // empty' <<<"$payload")"
     lim="$(jq -r '.tool_input.limit // empty' <<<"$payload")"
     [ -n "$off$lim" ] && exit 0
+    # images and PDFs are rendered by Read, not loaded as lines
+    case "$(tr '[:upper:]' '[:lower:]' <<<"${f##*.}")" in png|jpg|jpeg|gif|webp|pdf) exit 0 ;; esac
     n="$(lines_of "$f")"
     [ "$n" -gt "$LIMIT" ] && deny "$f" "$n"
     ;;
@@ -57,9 +66,10 @@ case "$tool" in
     cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
     # redirects to /dev/null or another fd hide nothing; a redirect to a file still passes
     cmd="$(sed -E 's/[0-9&]*>>?[[:space:]]*\/dev\/null//g; s/[0-9]>&[0-9]//g' <<<"$cmd")"
-    case "$cmd" in *"|"*|*">"*) exit 0 ;; esac
     # split into simple commands at ; & && || and newlines outside quotes, in order, tracking cd
     while IFS= read -r seg; do
+      # a pipe or redirect makes only its own command targeted, not the whole chain
+      case "$seg" in *"|"*|*">"*) continue ;; esac
       if [[ "$seg" =~ ^[[:space:]]*cd[[:space:]]+([^[:space:]]+) ]]; then
         t="${BASH_REMATCH[1]}"; case "$t" in /*) base="$t" ;; *) base="$base/$t" ;; esac
         continue

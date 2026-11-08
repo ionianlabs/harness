@@ -46,6 +46,19 @@ check "bash: head -n 350 big passes"       0 $R "$(bcmd "head -n 350 $tmp/big.tx
 check "bash: head -3 big passes"           0 $R "$(bcmd "head -3 $tmp/big.txt")"
 check "bash: tail -n5 big passes"          0 $R "$(bcmd "tail -n5 $tmp/big.txt")"
 check "bash: head -n 5000 small passes"    0 $R "$(bcmd "head -n 5000 $tmp/small.txt")"
+check "bash: pipe elsewhere, cat big denied" 2 $R "$(bcmd "cat $tmp/big.txt; ls | wc -l")"
+# images and PDFs are rendered by Read, not loaded as lines; newline bytes in them are no line count
+printf '\x89PNG\r\n\x1a\n%.0s' $(seq 1 400) > "$tmp/shot.png"; cp "$tmp/big.txt" "$tmp/doc.pdf"
+check "read: big png passes"               0 $R "{\"tool_name\":\"Read\",\"session_id\":\"t8\",\"tool_input\":{\"file_path\":\"$tmp/shot.png\"}}"
+check "read: big pdf passes"               0 $R "{\"tool_name\":\"Read\",\"session_id\":\"t8\",\"tool_input\":{\"file_path\":\"$tmp/doc.pdf\"}}"
+# a subagent cannot dispatch the reader, so its denial must name a step it can take
+msg_has() {  # name, agent_type, expected substring, unwanted substring
+  n=$((n+1)); local m
+  m="$(echo "{\"tool_name\":\"Read\",\"agent_type\":\"$2\",\"session_id\":\"t9-$2\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash $R 2>&1 >/dev/null)"
+  if [[ "$m" == *"$3"* && "$m" != *"$4"* ]]; then echo "ok   $1"; else echo "FAIL $1: $m"; fail=1; fi
+}
+msg_has "read: subagent denial says grep, not reader" general-purpose "offset and limit" "reader"
+msg_has "read: main denial names the reader"          ""              "reader"           "@@none@@"
 # read: documented gap: outside a git repo the denial counter lives in /tmp/harness (shared by every non-git cwd); kept because a per-user path would need a decision on cleanup
 ng="$(mktemp -d)"; rm -f /tmp/harness/denials-gapsess
 (cd "$ng" && echo "{\"tool_name\":\"Read\",\"session_id\":\"gapsess\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash "$OLDPWD/$R" >/dev/null 2>&1)
