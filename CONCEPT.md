@@ -120,7 +120,7 @@ Lookup order: repo root, then `$IONIAN_HOME/harness/<repo-name>.toml` (default `
 
 ## 6. Established practices, our own implementation
 
-Nothing is installed. Harness collects the best practices and standards we found and brings them into one setup. Read the source material freely, extract the principles behind it, write our own versions from understanding, then compare against the sources and keep what tests better. Ideas and methods carry no license obligation; the README says it in the Ionian voice: "Harness brings together established practices and standards for building with agents: zero-context review as described in Google's EGM, test-driven development as practised in superpowers, a read gate after Spotify's shunt, and the document formats of spec-kit. Every file is our own implementation. Where a passage stays close to its source, it is marked and credited." Where a passage is deliberately kept close to its source because rewriting would make it worse (EGM's anti-sycophancy rules are a candidate), it is marked in the file and carries that source's copyright and license notice in `THIRD_PARTY.md`. The rule at the output: text that reads as someone else's is marked and credited as theirs. "Elephant and goldfish" is credited as the concept followed (Rensin, Google EGM), never used as a product or role name.
+Nothing is installed. Harness collects the best practices and standards we found and brings them into one setup. Read the source material freely, extract the principles behind it, write our own versions from understanding, then compare against the sources and keep what tests better. Ideas and methods carry no license obligation; the README says it in the Ionian voice: "Harness brings together established practices and standards for building with agents: zero-context review as described in Google's EGM, test-driven development as practised in superpowers, a read gate after Spotify's shunt, and the document formats of spec-kit. Every file is our own implementation. Where a passage stays close to its source, it is marked and credited." Where a passage is deliberately kept close to its source because rewriting would make it worse (EGM's anti-sycophancy rules are a candidate), it is marked in the file and credited to its source. The rule at the output: text that reads as someone else's is marked and credited as theirs. "Elephant and goldfish" is credited as the concept followed (Rensin, Google EGM), never used as a product or role name.
 
 | Practice | Credited to | How it appears here |
 |---|---|---|
@@ -143,12 +143,12 @@ Harness and Brain are separate Ionian products that complement each other. A PM 
 | | Brain | Harness |
 |---|---|---|
 | Truth | PM layer: status summary, owners, dates, people, decisions in force; data in `$IONIAN_HOME/brain` | Engineering state in the code repo: specs in `docs/designs/<slug>.md`, plans, git, and the `STATE.md` handoff |
-| Session end | `brain:handover`, which reads `STATE.md` if present | `state` skill rewrites `STATE.md`; it runs first |
+| Session end | `brain:sync`, which reads `STATE.md` if present | `state` skill rewrites `STATE.md`; it runs first |
 | Repo artefacts | None; it links to repo files | `STATE.md`, `docs/designs/`, `harness.toml` |
 | Coexistence | The read gate never blocks a Brain skill (Brain reads only the top of logs) | The commit gate acts only in repos with a harness config, so a brain folder is never gated |
-| Names | `brain:brief`, `brain:handover` | `ionian-harness:state`, `spec-draft`, `spec-review`, `tdd` |
+| Names | `brain:agenda`, `brain:drop`, `brain:triage`, `brain:sync`, `brain:aware` | `ionian-harness:state`, `spec-draft`, `spec-review`, `tdd` |
 
-Order at the end of a session in a repo: `state`, then `brain:handover`. `tests/compat-brain.sh` checks this by hand (it costs tokens and is not part of `tests/run.sh`).
+Order at the end of a session in a repo: `state`, then `brain:sync`.
 
 ## 6a. Why not just install the parts
 
@@ -180,6 +180,6 @@ Each milestone ends with a dated lessons entry in the plugin repo. A rule gets a
 
 Milestone 0 (done 2026-11-03): hook payload verified. Main thread `agent_id` and `agent_type` null, subagents carry both. Gates key on `agent_type` for roles and on null `agent_id` for the main thread.
 
-Pilot repo: Ionian Flow, after its current migration is done. Not before.
+Pilot repo: Ionian Flow.
 
 

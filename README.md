@@ -1,43 +1,90 @@
-# Ionian Harness
+# Ionian Harness.
 
-Build. The agentic engineering setup we use to build with agents: one coordinator thread, context-isolated workers, gates enforced by hooks rather than by instruction.
+Harness is a plugin for Claude Code that makes agent-built code easier to trust. I wrote it for how I build: a spec before code, a test before a change, zero-context reviewers who check the work, and a read gate that keeps big files out of the main chat. Hooks enforce the rules that matter, so they do not depend on the model remembering an instruction.
 
-Status: milestone 1. Read gate, reader agent, commit gate, config loader, spec-draft, spec-review and tdd skills. Not ready for use.
+## Status.
 
-Harness brings together established practices and standards for building with agents: zero-context review as described in Google's EGM, test-driven development as practised in superpowers, a read gate after Spotify's shunt, and the document formats of spec-kit. Every file is our own implementation. Where a passage stays close to its source, it is marked and credited.
+Beta: you can install and use it, and it is still changing.
 
-## What is here
+Not built yet:
 
-- `hooks/read-gate.sh`: denies whole-file reads over 350 lines (Read, and cat/head/tail in bash) for everyone except the `reader` agent and the three spec reviewers; targeted reads pass; three denials of one file in a session and it lets go.
-- `agents/reader.md`: Haiku, read-only, answers one question with line numbers.
-- `agents/coder.md`, `agents/reviewer.md`, `agents/drafter.md`: the Sonnet workers the main thread dispatches. The coder holds the test-first rules and report block, the reviewer the punch-list checklist (read-only Bash), the drafter the spec writing rules, self-check and template.
-- `skills/spec-draft`: the main thread asks the user at most five ranked questions, briefs the `drafter` agent, sends back what it could not place and reconciles the draft against the brief; the drafter writes `docs/designs/<slug>.md` from the fixed template (features in priority order, each with a why, numbered Given/When/Then scenarios and a testability note, plus measurable success criteria).
-- `skills/spec-review`: three zero-context reviewers (`agents/spec-paraphrase.md`, `spec-critic.md`, `spec-readiness.md`, Opus, read-only) review the draft, the drafter applies the triaged fix list, one re-audit, then forced convergence and your approval.
-- `skills/state`: rewrites `STATE.md` in the repo root at session end, a fixed template under 400 words, status only. Run it before `brain:handover` if you use Ionian Brain.
-- `skills/tdd`: a pointer. Behaviour changes are done by dispatching the `coder` agent with an item brief; its test-first rules (a test seen failing for the right reason, the smallest change, the whole unit suite green, one deliberate break per new test, one commit, a fixed report) are in `agents/coder.md`.
-- Works with Ionian Brain: see CONCEPT.md section 6b. `tests/compat-brain.sh` is the manual check.
-- `hooks/commit-gate.sh`: in repos with a harness config (`harness.toml`, or `$IONIAN_HOME/harness/<repo>.toml` (default `~/Ionian`) for repos that must stay untouched), on `git commit`, refuses `--no-verify` (read from the commit's own arguments) and `git commit-tree`, follows `git -C <dir>`, scans staged lines with gitleaks, runs the unit suite from `harness.toml`, and denies source changes that come without a test change (`[no-tests]` in the message is the documented escape).
-- `lib/config.sh`: reads `harness.toml` (repo, then `$IONIAN_HOME/harness/<repo>.toml` (default `~/Ionian`)).
-- `tests/run.sh`: the hooks' own unit tests, fake payloads in, exit codes out. This repo's `harness.toml` points its commit gate at them.
-- Every decision is logged to `.git/harness/gate.log`.
+- A handoff gate that stops the main thread from writing repo files itself (the spec is approved, the hook is not written).
+- The lane commands `/fix`, `/change` and `/build`.
+- A `qa` agent.
+- A `harness` command line tool.
+- Dependency, merge and loop-stop hooks.
+- A GitHub Copilot port.
 
-## Install for yourself (user level)
+Known limits:
 
-    ln -s <path-to-harness> ~/.claude/skills/ionian-harness
+- The commit gate cannot see commands built from variables, or heredocs that run later.
+- The read gate does not count reads made with `sed -n`, `awk`, `<` or `$( )`.
+- I develop and test on macOS only.
 
-Loads in every new session as `ionian-harness@skills-dir`; each commit here is live in the next session. The read gate is on everywhere. The commit gate acts only in repos with `harness.toml`, or with `$IONIAN_HOME/harness/<repo>.toml` (default `~/Ionian`) for repos that must stay untouched, for example:
+## Install.
+
+    /plugin marketplace add ionianlabs/brain
+    /plugin install ionian-harness@ionianlabs
+
+The ionianlabs marketplace lives in the Brain repo and lists all Ionian Labs plugins. If you already use Brain, you only need the second line.
+
+To try it without installing: `claude --plugin-dir <path-to-this-repo>`.
+
+Requirements: bash, git and jq. Optional: gitleaks for the secret scan on commit, and the `claude` command line tool for `lib/ask.sh`, which the read gate points to when it denies a read.
+
+## Set up a repo.
+
+The read gate works everywhere once the plugin is on. The commit gate acts only in a repo that has a `harness.toml` at its root. This repo's own file is the smallest real example:
 
     [test]
-    unit = "pytest -q tests/unit"
+    unit = "bash tests/run.sh"
     dir  = "tests"
 
-Remove with `rm ~/.claude/skills/ionian-harness` (the link only).
+    [security]
+    secrets = "gitleaks git --pre-commit --staged --redact --no-banner"
 
-## Try the read gate
+    [gate]
+    require_tests = true
 
-    cd <path-to-harness> && git init -q
-    claude --plugin-dir .
+    [limits]
+    unit_seconds = 30
 
-Then: `What does line 200 of dev/big.txt say?` (denied once, reader dispatched, targeted read passes) and `Read dev/big.txt lines 10 to 12.` (passes directly).
+`unit` is the command the gate runs before each commit. With `require_tests` on, a commit that changes source without changing a test is denied. Put `[no-tests]` in the message of a commit that truly needs no test, such as docs. Every gate decision is logged to `.git/harness/gate.log`.
 
-License: MIT.
+## What is inside.
+
+Spec
+
+- `spec-draft`: asks you a few ranked questions, then has the `drafter` agent write `docs/designs/<slug>.md` from a fixed template with numbered Given/When/Then scenarios.
+- `spec-review`: three zero-context reviewers (`spec-paraphrase`, `spec-critic`, `spec-readiness`) check the draft, the drafter fixes it, and you approve.
+
+Build
+
+- `tdd`: behaviour changes go to the `coder` agent with an item brief. It sees a test fail for the right reason, makes the smallest change, runs the whole unit suite and commits.
+
+Review
+
+- `reviewer` agent: checks one finished commit against a fixed checklist and returns a punch-list. It edits nothing.
+
+Hand off
+
+- `state`: rewrites `STATE.md` at the end of a session, a fixed template under 400 words, so the next chat starts with context.
+
+Guard
+
+- `hooks/read-gate.sh`: denies whole-file reads of large files (over 350 lines by default) and keeps a per-agent line budget. The denial tells the model to ask a question with `lib/ask.sh` or to read a range.
+- `agents/reader.md`: a small read-only agent that answers one question about a file with line numbers.
+- `hooks/commit-gate.sh`: on `git commit`, refuses `--no-verify`, scans staged lines with gitleaks, runs your unit suite and requires a test change with a source change.
+- `lib/config.sh`: reads `harness.toml`.
+
+## With Ionian Brain.
+
+Harness and Brain are separate and work well together. At the end of a session in a repo, run the `state` skill, which writes `STATE.md`. Then run Brain's `sync` skill, which reads `STATE.md` and carries the status into your brain. Harness never reads or writes your brain. The design is in `CONCEPT.md`.
+
+## Credits.
+
+Harness brings together established practices and standards for building with agents: zero-context review as described in Google's EGM, test-driven development as practised in superpowers, a read gate after Spotify's shunt, the document formats of spec-kit, and the secret scan of gitleaks. Every file is my own wording. `CONCEPT.md` lists each practice and where it shows up.
+
+## License.
+
+MIT.
