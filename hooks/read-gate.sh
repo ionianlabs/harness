@@ -62,11 +62,37 @@ is_image() {  # rendered by Read as an image or document, not loaded as lines
 reads="$state_dir/reads-$session"
 rec_start=""; rec_end=""; rec_path=""   # the range a read delivers if it is let through
 pending=""                              # ranges of this call that passed so far, one ledger line each
+mainlines="$state_dir/mainlines-$session"   # main thread only: one line per read, the lines it delivered (F3)
+mcur=""; mpend=""; msum=0               # lines of the read being judged; of this call's reads that passed; their sum
 record() {  # appends the pending ranges and the current one; a failed write is a state error and never denies
   if [ -n "$rec_start" ]; then pending="$pending$akey $rec_path $rec_start $rec_end"$'\n'; rec_start=""; fi
-  [ -n "$pending" ] || return 0
-  printf '%s' "$pending" >> "$reads" 2>/dev/null || echo "  -> state error, allowed" >> "$log"
-  pending=""
+  if [ -n "$mcur" ]; then mpend="$mpend$mcur"$'\n'; mcur=""; fi
+  if [ -n "$pending" ]; then
+    printf '%s' "$pending" >> "$reads" 2>/dev/null || echo "  -> state error, allowed" >> "$log"
+    pending=""
+  fi
+  if [ -n "$mpend" ]; then
+    printf '%s' "$mpend" >> "$mainlines" 2>/dev/null || echo "  -> state error, allowed" >> "$log"
+    mpend=""; msum=0
+  fi
+}
+m_judge() {  # $1 file  $2 its line count; the main thread's read of $mcur lines, denied once the session total is at the budget
+  [ -n "$mcur" ] || return 0
+  local t=0 l bud small
+  if [ -e "$mainlines" ]; then
+    if [ ! -r "$mainlines" ]; then echo "  -> state error, allowed" >> "$log"; mcur=""; return 0; fi
+    while IFS= read -r l; do if [[ "$l" =~ ^[0-9]+$ ]]; then t=$(( t + 10#$l )); fi; done <"$mainlines"
+  fi
+  t=$(( t + msum ))
+  need_repo
+  bud="$(bash "$here/lib/config.sh" "$repo" read.session_budget 3000 2>/dev/null)"
+  [[ "$bud" =~ ^[0-9]+$ ]] || bud=3000
+  if [ "$t" -ge "$bud" ]; then
+    small="$(bash "$here/lib/config.sh" "$repo" read.small_read 40 2>/dev/null)"
+    [[ "$small" =~ ^[0-9]+$ ]] || small=40
+    if [ "$mcur" -gt "$small" ]; then deny "$1" "$2" "$t" "$bud" session; fi
+  fi
+  mpend="$mpend$mcur"$'\n'; msum=$(( msum + mcur )); mcur=""
 }
 union() {  # $1 start $2 end; prints "<distinct lines seen if added><TAB><merged ranges seen so far>"
   # the ledger plus this call's pending ranges; the path is compared exactly, whatever it contains
@@ -103,7 +129,9 @@ deny() {  # $1 file  $2 line count  $3 lines seen so far and $4 budget, for a bu
   echo "$akey $1" >> "$counter"
   if [ "$n" -gt 3 ]; then record; echo "  -> loop guard, allowed" >> "$log"; exit 0; fi
   echo "  -> DENIED ($n/3)" >> "$log"
-  if [ -n "$4" ]; then
+  if [ -n "$5" ]; then
+    echo "Read gate: this session has already loaded $3 lines in the main thread (budget $4), and $1 ($2 lines) would add more. Dispatch a subagent for this task rather than reading it yourself." >&2
+  elif [ -n "$4" ]; then
     echo "Read gate: $1 has $2 lines. This read would take you past the line budget: seen ${3:-none}, budget $4." >&2
   else
     echo "Read gate: $1 has $2 lines (limit $LIMIT). Do not load it whole." >&2
@@ -132,19 +160,22 @@ case "$tool" in
   Read)
     is_image "$f" && exit 0   # images and PDFs are rendered by Read, not loaded as lines
     lines_of "$f"; n="$LN"
-    [ "$n" -gt "$LIMIT" ] || exit 0   # small or missing files are not counted
+    [ "$n" -gt "$LIMIT" ] || [ "$akey" = main ] || exit 0   # small or missing files are not counted, except in the main thread's session budget
     if ! [[ "${off:-1}" =~ ^[0-9]+$ && "${lim:-1}" =~ ^[0-9]+$ ]]; then echo "  -> parse error, allowed" >> "$log"; exit 0; fi
     start="${off:-1}"; [ "$start" -ge 1 ] || start=1
     if [ -n "$lim" ]; then end=$(( start + lim - 1 )); else end="$n"; fi
     [ "$end" -le "$n" ] || end="$n"
     [ "$start" -le "$end" ] || exit 0   # nothing delivered
     case "$f" in /*) rec_path="$f" ;; *) rec_path="$base/$f" ;; esac
+    [ "$akey" != main ] || mcur=$(( end - start + 1 ))
+    if [ "$n" -le "$LIMIT" ]; then m_judge "$f" "$n"; record; exit 0; fi
     rec_start="$start"; rec_end="$end"
     # a read that covers the whole file is a whole-file read, however it is spelled
     if [ "$start" -le 1 ] && [ "$end" -ge "$n" ]; then deny "$f" "$n"; fi
     file_budget
     if ! res="$(union "$start" "$end")"; then echo "  -> state error, allowed" >> "$log"; exit 0; fi
     if [ "${res%%$'\t'*}" -gt "$budget" ]; then deny "$f" "$n" "${res#*$'\t'}" "$budget"; fi
+    m_judge "$f" "$n"
     record
     ;;
   Bash)
@@ -169,13 +200,16 @@ case "$tool" in
     whole_file() {  # $1 file: denied when large; never recorded
       is_image "$1" && return 0
       rec_start=""; lines_of "$1"
+      if [ "$akey" = main ] && [ "$LN" -ge 1 ]; then mcur="$LN"; fi
       [ "$LN" -gt "$LIMIT" ] && deny "$1" "$LN"
+      m_judge "$1" "$LN"
       return 0
     }
     range_of() {  # $1 file, $2 mode (abs, head or tail), $3 and $4 the numbers; counts the lines a read delivers
       local f="$1" n s e budget res
       is_image "$f" && return 0
-      lines_of "$f"; n="$LN"; [ "$n" -gt "$LIMIT" ] || return 0   # small or missing files are not counted
+      lines_of "$f"; n="$LN"
+      [ "$n" -gt "$LIMIT" ] || [ "$akey" = main ] || return 0   # small or missing files are not counted, except in the main thread's session budget
       case "$2" in
         head) s=1; e="$3" ;;
         tail) s=$(( n - $3 + 1 )); e="$n" ;;
@@ -185,11 +219,14 @@ case "$tool" in
       [ "$e" -ge "$s" ] || e="$s"   # sed prints line A for a range that runs backwards
       [ "$e" -le "$n" ] || e="$n"
       [ "$s" -le "$e" ] || return 0   # nothing delivered
+      [ "$akey" != main ] || mcur=$(( e - s + 1 ))
+      if [ "$n" -le "$LIMIT" ]; then m_judge "$f" "$n"; return 0; fi
       case "$f" in /*) rec_path="$f" ;; *) rec_path="$base/$f" ;; esac; rec_start="$s"; rec_end="$e"
       if [ "$s" -le 1 ] && [ "$e" -ge "$n" ]; then deny "$f" "$n"; fi
       file_budget
       if ! res="$(union "$s" "$e")"; then echo "  -> state error, allowed" >> "$log"; exit 0; fi
       if [ "${res%%$'\t'*}" -gt "$budget" ]; then deny "$f" "$n" "${res#*$'\t'}" "$budget"; fi
+      m_judge "$f" "$n"
       pending="$pending$akey $rec_path $s $e"$'\n'; rec_start=""
     }
     awk_one='^[[:space:]]*NR[[:space:]]*>=[[:space:]]*([0-9]+)[[:space:]]*&&[[:space:]]*NR[[:space:]]*<=[[:space:]]*([0-9]+)[[:space:]]*$'

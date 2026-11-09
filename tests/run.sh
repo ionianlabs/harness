@@ -426,6 +426,82 @@ g_budgetb4() {
   mcheck "union: overlapping and adjacent entries merge" "$err" "seen 1-200,300-310" "loop"
   rm -rf "$br" "$br2"
 }
+g_session() {
+# read-gate-v2 F3: the main thread's session read budget, kept in mainlines-<session>
+  bb_setup
+  local i
+  for i in 40 41 100 300; do printf 'line %d\n' $(seq 1 $i) > "$br/l$i.txt"; done
+  printf '[read]\nsession_budget = "100"\nsmall_read = "10"\n' > "$br2/harness.toml"
+  printf 'line %d\n' $(seq 1 20) > "$br2/l20.txt"; printf 'line %d\n' $(seq 1 10) > "$br2/l10.txt"
+  mlsum() {  # session : the summed lines in mainlines-<session> of the first repo
+    awk '{ s += $1 } END { print s + 0 }' "$st/mainlines-$1" 2>/dev/null
+  }
+  seed() { mkdir -p "$st"; echo "$2" > "$st/mainlines-$1"; }
+  seedrd() {  # session total offset limit file : prewrites the total, then one main-thread Read
+    seed "$1" "$2"; rdo "$br" "$1" "$3" "$4" "$5"
+  }
+  worker() {  # session file : a worker agent's Read
+    err="$(jq -nc --arg s "$1" --arg f "$2" --arg c "$br" \
+      '{tool_name:"Read",session_id:$s,agent_id:"a1",agent_type:"general-purpose",cwd:$c,tool_input:{file_path:$f}}' \
+      | (cd "$br" && bash "$R" 2>&1 >/dev/null))"; rc=$?
+  }
+  want() {  # name, expected exit of the last call
+    n=$((n+1)); if [ "$rc" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (expected $2, got $rc)"; fail=1; fi
+  }
+  seedrd s2 3000 "" "" "$br/l41.txt"; want "F3.1 a 41-line Read at 3000 lines is denied" 2
+  mcheck "F3.1 denial says to dispatch a subagent" "$err" "subagent" "loop"
+  mcheck "F3.1 denial names lib/ask.sh"            "$err" "lib/ask.sh" "loop"
+  mcheck "F3.1 denial names the denied file"       "$err" "$br/l41.txt" "loop"
+  mcheck "F3.1 denial says offset and limit"       "$err" "offset and limit" "loop"
+  ok "F3.1 denied read adds nothing" "$([ "$(mlsum s2)" = 3000 ]; echo $?)"
+  seedrd s2 3000 1 41 "$br/big.txt"; want "F3.1 a ranged 41-line Read of a large file is denied" 2
+  seedrd s2b 3000 "" "" "$br/l40.txt"; want "F3.2 a 40-line Read at 3000 lines passes" 0
+  ok "F3.2 the small read is counted" "$([ "$(mlsum s2b)" = 3040 ]; echo $?)"
+  seedrd s3 2999 "" "" "$br/l300.txt"; want "F3.3 a 300-line Read at 2999 lines passes" 0
+  ok "F3.3 the total becomes 3299" "$([ "$(mlsum s3)" = 3299 ]; echo $?)"
+  seed s4 3000; worker s4 "$br/l41.txt"; want "F3.4 a worker agent's 41-line Read passes" 0
+  ok "F3.4 a worker's read is not counted" "$([ "$(mlsum s4)" = 3000 ]; echo $?)"
+  err="$(jq -nc --arg c "$br" --arg f "$br/big.txt" '{tool_name:"Read",session_id:"s4",agent_id:"a1",agent_type:"general-purpose",cwd:$c,tool_input:{file_path:$f,offset:1,limit:100}}' | (cd "$br" && bash "$R" 2>&1 >/dev/null))"; rc=$?
+  want "F3.4 a worker's 100-line range of a large file passes" 0
+  ok "F3.4 a worker's large-file range is not counted" "$([ "$(mlsum s4)" = 3000 ]; echo $?)"
+  seed s5 3000
+  for i in 1 2 3; do rdo "$br" s5 "" "" "$br/l41.txt"; want "F3.5 denial $i" 2; done
+  rdo "$br" s5 "" "" "$br/l41.txt"; want "F3.5 the 4th read of the file passes" 0
+  ok "F3.5 the loop guard pass is counted" "$([ "$(mlsum s5)" = 3041 ]; echo $?)"
+  rdo "$br" s6 1 100 "$br/big.txt"; rdo "$br" s6 1 100 "$br/big.txt"; want "F3.6 the same 100 lines again pass" 0
+  ok "F3.6 each delivery adds 100" "$([ "$(mlsum s6)" = 200 ]; echo $?)"
+  seed s7 3000; bsh "$br" s7 "" "" "sed -n '1,100p' $br/mid.txt"; want "F3.7 sed of 100 lines of a small file at 3000 is denied" 2
+  mcheck "F3.7 denial says to dispatch a subagent" "$err" "subagent" "loop"
+  # what counts: every Bash form the gate measures, whatever the file size
+  bsh "$br" s8 "" "" "cat $br/mid.txt"; ok "cat of a small file counts its lines" "$([ "$(mlsum s8)" = 200 ]; echo $?)"
+  bsh "$br" s8 "" "" "head -n 20 $br/mid.txt; sed -n '5,7p' $br/big.txt"
+  ok "head and sed ranges count their lines" "$([ "$(mlsum s8)" = 223 ]; echo $?)"
+  seed s8b 3000; bsh "$br" s8b "" "" "cat $br/mid.txt"; want "cat of 200 lines at 3000 is denied" 2
+  seed s8c 3000; bsh "$br" s8c "" "" "head -n 40 $br/mid.txt"; want "head -n 40 at 3000 passes" 0
+  bsh "$br" s8d "" "" "sed -n '/line 5/p' $br/mid.txt; head -c 50 $br/mid.txt"
+  ok "an uncounted form adds nothing" "$([ ! -e "$st/mainlines-s8d" ]; echo $?)"
+  bsh "$br" s8e "" "" "sed -n '1,30p' $br/mid.txt; sed -n '1,30p' $br/mid.txt"
+  ok "two reads in one command are both counted" "$([ "$(mlsum s8e)" = 60 ]; echo $?)"
+  seed s8f 2980; bsh "$br" s8f "" "" "sed -n '1,50p' $br/mid.txt; sed -n '1,50p' $br/mid.txt"
+  want "a second read of a command can be denied by the first one" 2
+  ok "a denied command counts nothing" "$([ "$(mlsum s8f)" = 2980 ]; echo $?)"
+  rdo "$br" s9 "" "" "$br/nope.txt"; rdo "$br" s9 "" "" "$br/shot.png"
+  ok "missing files and images add nothing" "$([ ! -e "$st/mainlines-s9" ]; echo $?)"
+  err="$(jq -nc --arg c "$br" --arg f "$br/l41.txt" '{tool_name:"Read",session_id:"s10",agent_type:"reader",cwd:$c,tool_input:{file_path:$f}}' | (cd "$br" && bash "$R" 2>&1 >/dev/null))"; rc=$?
+  want "an exempt agent type is not judged" 0
+  ok "an exempt agent adds nothing" "$([ ! -e "$st/mainlines-s10" ]; echo $?)"
+  # configured budget and small read; state errors fail open
+  mkdir -p "$br2/.git/harness"; echo 100 > "$br2/.git/harness/mainlines-s11"
+  rdo "$br2" s11 "" "" "$br2/l20.txt"; want "session_budget 100 and small_read 10 deny 20 lines" 2
+  rdo "$br2" s11 "" "" "$br2/l10.txt"; want "small_read 10 lets 10 lines pass" 0
+  echo 99 > "$br2/.git/harness/mainlines-s11b"; rdo "$br2" s11b "" "" "$br2/l20.txt"; want "99 is under the budget of 100" 0
+  seed s12 3000; chmod 000 "$st/mainlines-s12"; rdo "$br" s12 "" "" "$br/l41.txt"; want "an unreadable mainlines file fails open" 0
+  ok "the unreadable file is logged as a state error" "$(grep -q 'state error' "$st/gate.log"; echo $?)"
+  chmod 600 "$st/mainlines-s12"
+  bdc "an ordinary git status on the main thread passes" 0 "$br" s13 "" "" "git status"
+  ok "git status counts nothing" "$([ ! -e "$st/mainlines-s13" ]; echo $?)"
+  rm -rf "$br" "$br2"
+}
 g_commit1() {
   tmp="$(mktemp -d)"; git -C "$tmp" init -q; printf 'line %d\n' $(seq 1 400) > "$tmp/big.txt"; echo hi > "$tmp/small.txt"
 # commit gate, in a throwaway repo with its own harness.toml
@@ -741,7 +817,7 @@ run_group() {  # name: run the group in a subshell, output and counters to files
   ( n=0; fail=0; "$1"; echo "$n $fail" > "$OUT/$1.rc" ) > "$OUT/$1.out" 2>&1 &
 }
 OUT="$TROOT/out"; mkdir "$OUT"
-groups="g_read1 g_read2 g_failopen g_budget g_budgetb1 g_budgetb2 g_budgetb3 g_budgetb4 g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3 g_fast"
+groups="g_read1 g_read2 g_failopen g_budget g_budgetb1 g_budgetb2 g_budgetb3 g_budgetb4 g_session g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3 g_fast"
 groups="$groups g_agents"   # coordinator-hands-off group, own line
 for g in $groups; do run_group $g; done
 wait
