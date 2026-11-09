@@ -460,11 +460,44 @@ ll="$(tail -1 "$ar/.git/harness/gate.log")"
 [[ "$ll" == *"tool=ask session=ab_x_y files=1 "* ]] && [ "$(grep -c 'tool=ask session=ab_x_y' "$ar/.git/harness/gate.log")" = 1 ]; ok "ask: session id in gate.log is sanitized" $?
   rm -rf "$ar"
 }
+g_agents() {  # coordinator-hands-off F1, F4, F5: agent files and skill texts
+  fm() {  # file key: the frontmatter value of key
+    awk -v k="$2" 'NR==1 && $0!="---" {exit} NR>1 && $0=="---" {exit} NR>1 && index($0, k ": ")==1 {print substr($0, length(k)+3)}' "$1"
+  }
+  body() { awk 'c>=2 {print} $0=="---" {c++}' "$1"; }
+  has_all() {  # name, file, phrases...: one ok line per phrase
+    local nm="$1" f="$2" p; shift 2
+    for p in "$@"; do grep -qF -- "$p" "$f"; ok "$nm: contains $p" $?; done
+  }
+  local a f
+  for a in coder reviewer drafter; do
+    f="agents/$a.md"
+    [ "$(fm "$f" name)" = "$a" ]; ok "agents/$a: name (F1)" $?
+    [ "$(fm "$f" model)" = "sonnet" ]; ok "agents/$a: model sonnet (F1)" $?
+    [ -n "$(fm "$f" description)" ]; ok "agents/$a: description non-empty (F1)" $?
+    [[ "$(fm "$f" description)" == *"Dispatch when"* ]]; ok "agents/$a: description has Dispatch when (F1.4)" $?
+    body "$f" | grep -qF 'skills/'; [ $? = 1 ] && [ -s "$f" ]; ok "agents/$a: body never mentions skills/ (F1.8)" $?
+  done
+  [ "$(fm agents/coder.md tools)" = "Read, Edit, Write, Bash, Grep, Glob" ]; ok "agents/coder: tools exact (F1.1)" $?
+  [ "$(fm agents/reviewer.md tools)" = "Read, Grep, Glob, Bash" ]; ok "agents/reviewer: tools exact (F1.2)" $?
+  [ "$(fm agents/drafter.md tools)" = "Read, Write, Edit, Grep, Glob" ]; ok "agents/drafter: tools exact (F1.3)" $?
+  [[ "$(fm agents/coder.md description)" == *"Dispatch when"*"behaviour change or fix"*"brief"* ]]; ok "agents/coder: Dispatch when a behaviour change or fix with a brief (F1.4)" $?
+  [[ "$(fm agents/reviewer.md description)" == *"Dispatch when"*"finished commit"* ]]; ok "agents/reviewer: Dispatch when a finished commit (F1.4)" $?
+  [[ "$(fm agents/drafter.md description)" == *"Dispatch when"*"spec to write or revise"* ]]; ok "agents/drafter: Dispatch when a spec to write or revise (F1.4)" $?
+  has_all "agents/coder (F1.5)" agents/coder.md 'test first' 'STATUS: DONE' 'RED:' 'GREEN:' 'one commit per item' 'dependency manifests' 'follow the denial' 'ask.sh' 'BLOCKED'
+  has_all "agents/reviewer (F1.6)" agents/reviewer.md 'read-only' 'file:line' 'no findings' 'prove the behaviour' 'smallest change' 'reuse what exists' 'surface nobody asked for' 'input handling' 'secrets' 'injection' 'auth' 'personal data in fixtures'
+  has_all "agents/drafter (F1.7)" agents/drafter.md '## Success criteria' 'Testability:' '[NEEDS CLARIFICATION' 'could not place' 'verbatim' 'Status: approved'
+  grep -qF 'ionian-harness:coder' skills/tdd/SKILL.md; ok "skills/tdd: points to ionian-harness:coder (F1.9)" $?
+  [ "$(wc -l < skills/tdd/SKILL.md)" -le 25 ]; ok "skills/tdd: short pointer (F1.9)" $?
+  [ ! -e skills/spec-draft/template.md ]; ok "skills/spec-draft/template.md is removed (F1.9)" $?
+  ! grep -qP '\x{2013}|\x{2014}' agents/coder.md agents/reviewer.md agents/drafter.md skills/*/SKILL.md 2>/dev/null; ok "agents and skills: no em or en dashes" $?
+}
 run_group() {  # name: run the group in a subshell, output and counters to files
   ( n=0; fail=0; "$1"; echo "$n $fail" > "$OUT/$1.rc" ) > "$OUT/$1.out" 2>&1 &
 }
 OUT="$TROOT/out"; mkdir "$OUT"
 groups="g_read1 g_read2 g_failopen g_budget g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
+groups="$groups g_agents"   # coordinator-hands-off group, own line
 for g in $groups; do run_group $g; done
 wait
 total=0
