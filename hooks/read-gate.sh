@@ -11,6 +11,7 @@ payload="$(cat)"
 tool="$(jq -r '.tool_name // ""' <<<"$payload")"
 agent="$(jq -r '.agent_type // ""' <<<"$payload")"
 session="$(jq -r '.session_id // "nosession"' <<<"$payload")"
+akey="$(jq -r '.agent_id // ""' <<<"$payload")"; [ -n "$akey" ] || akey=main   # budgets and denials are kept per agent context
 
 # plugin agents arrive as ionian-harness:<name>; only our own prefix is stripped
 case "${agent#ionian-harness:}" in reader|spec-paraphrase|spec-critic|spec-readiness) exit 0 ;; esac
@@ -35,15 +36,37 @@ lines_of() {  # relative paths resolve against the payload cwd, moved by any cd 
   if [ -f "$f" ]; then wc -l < "$f" | tr -d ' '; else echo 0; fi
 }
 
-deny() {  # $1 file  $2 line count
+reads="$state_dir/reads-$session"
+rec_start=""; rec_end=""; rec_path=""   # the range a Read delivers if it is let through
+record() {  # appends the delivered range of a Read; a failed write is a state error and never denies
+  [ -n "$rec_start" ] || return 0
+  echo "$akey $rec_path $rec_start $rec_end" >> "$reads" 2>/dev/null || echo "  -> state error, allowed" >> "$log"
+}
+union() {  # $1 start $2 end; prints "<distinct lines seen if added><TAB><merged ranges seen so far>"
+  if [ ! -e "$reads" ]; then printf '%s\t\n' $(( $2 - $1 + 1 )); return 0; fi
+  awk -v a="$akey" -v p="$rec_path" -v ns="$1" -v ne="$2" '
+    $1 != a { next }
+    { e = $NF; s = $(NF-1); q = $2; for (i = 3; i <= NF-2; i++) q = q " " $i; if (q != p) next
+      for (i = s; i <= e; i++) { seen[i] = 1; if (i > mx) mx = i } }
+    END { str = ""; c = 0; i = 1
+      while (i <= mx) { if (seen[i]) { j = i; while (seen[j+1]) j++; str = str (str == "" ? "" : ",") i "-" j; c += j - i + 1; i = j + 1 } else i++ }
+      for (i = ns; i <= ne; i++) if (!seen[i]) c++
+      printf "%d\t%s\n", c, str }' "$reads" 2>/dev/null
+}
+
+deny() {  # $1 file  $2 line count  $3 lines seen so far and $4 budget, for a budget denial
   local n
   # a gate that cannot name the file or the count must not deny: it saves tokens, so it fails open
   if [ -z "$1" ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then echo "  -> gate error, allowed" >> "$log"; exit 0; fi
-  n=$(( $(grep -c "^$1\$" "$counter" 2>/dev/null) + 1 ))
-  echo "$1" >> "$counter"
-  if [ "$n" -gt 3 ]; then echo "  -> loop guard, allowed" >> "$log"; exit 0; fi
+  n=$(( $(grep -cxF -- "$akey $1" "$counter" 2>/dev/null) + 1 ))
+  echo "$akey $1" >> "$counter"
+  if [ "$n" -gt 3 ]; then record; echo "  -> loop guard, allowed" >> "$log"; exit 0; fi
   echo "  -> DENIED ($n/3)" >> "$log"
-  echo "Read gate: $1 has $2 lines (limit $LIMIT). Do not load it whole." >&2
+  if [ -n "$4" ]; then
+    echo "Read gate: $1 has $2 lines. This read would take you past the line budget: seen ${3:-none}, budget $4." >&2
+  else
+    echo "Read gate: $1 has $2 lines (limit $LIMIT). Do not load it whole." >&2
+  fi
   if [ "$use_ask" = 1 ]; then
     cat >&2 <<MSG
 Get the lines you need with one precise question about this file, answered by a cheap model:
@@ -64,11 +87,24 @@ case "$tool" in
     f="$(jq -r '.tool_input.file_path // ""' <<<"$payload")"
     off="$(jq -r '.tool_input.offset // empty' <<<"$payload")"
     lim="$(jq -r '.tool_input.limit // empty' <<<"$payload")"
-    [ -n "$off$lim" ] && exit 0
     # images and PDFs are rendered by Read, not loaded as lines
     case "$(tr '[:upper:]' '[:lower:]' <<<"${f##*.}")" in png|jpg|jpeg|gif|webp|pdf) exit 0 ;; esac
     n="$(lines_of "$f")"
-    [ "$n" -gt "$LIMIT" ] && deny "$f" "$n"
+    [ "$n" -gt "$LIMIT" ] || exit 0   # small or missing files are not counted
+    if ! [[ "${off:-1}" =~ ^[0-9]+$ && "${lim:-1}" =~ ^[0-9]+$ ]]; then echo "  -> parse error, allowed" >> "$log"; exit 0; fi
+    start="${off:-1}"; [ "$start" -ge 1 ] || start=1
+    if [ -n "$lim" ]; then end=$(( start + lim - 1 )); else end="$n"; fi
+    [ "$end" -le "$n" ] || end="$n"
+    [ "$start" -le "$end" ] || exit 0   # nothing delivered
+    case "$f" in /*) rec_path="$f" ;; *) rec_path="$base/$f" ;; esac
+    rec_start="$start"; rec_end="$end"
+    # a read that covers the whole file is a whole-file read, however it is spelled
+    if [ "$start" -le 1 ] && [ "$end" -ge "$n" ]; then deny "$f" "$n"; fi
+    budget="$(bash "$here/lib/config.sh" "$repo" read.file_budget 350 2>/dev/null)"
+    [[ "$budget" =~ ^[0-9]+$ ]] || budget=350
+    if ! res="$(union "$start" "$end")"; then echo "  -> state error, allowed" >> "$log"; exit 0; fi
+    if [ "${res%%$'\t'*}" -gt "$budget" ]; then deny "$f" "$n" "${res#*$'\t'}" "$budget"; fi
+    record
     ;;
   Bash)
     cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"

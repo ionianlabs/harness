@@ -128,9 +128,98 @@ g_failopen() {
   runwrap; rc=$?; n=$((n+1)); if [ "$rc" = 0 ]; then echo "ok   failopen: gate with a syntax error is skipped"; else echo "FAIL failopen: gate with a syntax error (got $rc)"; fail=1; fi
   n=$((n+1)); if [ "$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[0].command' "$ROOT/hooks/hooks.json")" = 'bash ${CLAUDE_PLUGIN_ROOT}/hooks/commit-gate.sh' ]; then echo "ok   failopen: commit gate entry unchanged"; else echo "FAIL failopen: commit gate entry changed"; fail=1; fi
   # a payload that reaches deny with an empty path (limit -1 makes the empty file count as large) is allowed and logged
-  jq -nc --arg c "$d" '{tool_name:"Read",session_id:"fo2",cwd:$c,tool_input:{file_path:""}}' | (cd "$d" && HARNESS_READ_LIMIT=-1 bash "$R" >/dev/null 2>&1); rc=$?
+  jq -nc --arg c "$d" '{tool_name:"Bash",session_id:"fo2",cwd:$c,tool_input:{command:"cat \"\""}}' | (cd "$d" && HARNESS_READ_LIMIT=-1 bash "$R" >/dev/null 2>&1); rc=$?
   n=$((n+1)); if [ "$rc" = 0 ] && grep -q 'gate error, allowed' "$d/.git/harness/gate.log"; then echo "ok   failopen: empty path reaching deny is allowed and logged"; else echo "FAIL failopen: empty path reaching deny (got $rc)"; fail=1; fi
   rm -rf "$pr" "$d"
+}
+g_budget() {
+# read-gate-v2 F2 part a: per-agent line budget for Read ranges; own throwaway repos, state never lands here
+  local br br2 br3 st f rc err
+  br="$(mktemp -d)"; git -C "$br" init -q; br2="$(mktemp -d)"; git -C "$br2" init -q; br3="$(mktemp -d)"; git -C "$br3" init -q
+  for d in "$br" "$br2" "$br3"; do printf 'line %d\n' $(seq 1 400) > "$d/big.txt"; done
+  printf '[read]\nfile_budget = "100"\n' > "$br2/harness.toml"; printf '[read]\nask = "false"\n' > "$br3/harness.toml"
+  printf 'line %d\n' $(seq 1 200) > "$br/mid.txt"; printf '\x89PNG\r\n\x1a\n%.0s' $(seq 1 400) > "$br/shot.png"
+  st="$br/.git/harness"; f="$br/big.txt"
+  rd() {  # repo session agent_id agent_type offset limit file ; sets rc and err
+    err="$(jq -nc --arg s "$2" --arg i "$3" --arg t "$4" --arg o "$5" --arg l "$6" --arg f "$7" --arg c "$1" \
+      '{tool_name:"Read",session_id:$s,agent_id:$i,agent_type:$t,cwd:$c,
+        tool_input:({file_path:$f}+(if $o!="" then {offset:($o|tonumber)} else {} end)+(if $l!="" then {limit:($l|tonumber)} else {} end))}' \
+      | (cd "$1" && bash "$R" 2>&1 >/dev/null)
+
+)"; rc=$?
+  }
+  rdc() {  # name, expected exit, then rd arguments
+    local nm="$1" want="$2"; shift 2; rd "$@"; n=$((n+1))
+    if [ "$rc" = "$want" ]; then echo "ok   $nm"; else echo "FAIL $nm (expected $want, got $rc)"; fail=1; fi
+  }
+  has() { grep -qxF "$2" "$st/$1" 2>/dev/null; }
+  rdc "F2.1 read 1-300 passes"                     0 "$br" s1 "" "" 1 300 "$f"
+  rdc "F2.2 read 200-299 passes, all seen"         0 "$br" s1 "" "" 200 100 "$f"
+  rdc "F2.2 union stays 300: 301-350 still fits"   0 "$br" s1 "" "" 301 50 "$f"
+  rdc "F2.3 read: 1-300 then 301-360 denied"       0 "$br" s3 "" "" 1 300 "$f"
+  rdc "F2.3 read: 301-360 would make 360"          2 "$br" s3 "" "" 301 60 "$f"
+  mcheck "F2.3 read: denial says seen 1-300"       "$err" "seen 1-300" "loop"
+  mcheck "F2.3 read: denial says budget 350"       "$err" "budget 350" "loop"
+  mcheck "F2.3 read: denial names lib/ask.sh"      "$err" "lib/ask.sh" "loop"
+  ok "F2.3 read: denied read records nothing" "$([ "$(wc -l < "$st/reads-s3" | tr -d ' ')" = 1 ]; echo $?)"
+  rdc "F2.3 ranges: 1-3"                           0 "$br" s3b "" "" 1 3 "$f"
+  rdc "F2.3 ranges: 9-9"                           0 "$br" s3b "" "" 9 1 "$f"
+  rdc "F2.3 ranges: 20-400 denied"                 2 "$br" s3b "" "" 20 381 "$f"
+  mcheck "F2.3 ranges joined with commas"          "$err" "seen 1-3,9-9" "loop"
+  rdc "F2.3 fallback: 1-300"                       0 "$br3" s3c "" "" 1 300 "$br3/big.txt"
+  rdc "F2.3 fallback: 301-360 denied"              2 "$br3" s3c "" "" 301 60 "$br3/big.txt"
+  mcheck "F2.3 fallback keeps seen and budget"     "$err" "seen 1-300" "ask.sh"
+  mcheck "F2.3 fallback has budget and Grep text"  "$err" "budget 350" "ask.sh"
+  mcheck "F2.3 fallback names the Grep text"       "$err" "Grep (or grep -n)" "ask.sh"
+  rdc "F2.4 offset 391 alone passes"               0 "$br" s4 "" "" 391 "" "$f"
+  ok "F2.4 offset 391 records 391 400" "$(has reads-s4 "main $f 391 400"; echo $?)"
+  rdc "F2.4 limit 5 alone passes"                  0 "$br" s4 "" "" "" 5 "$f"
+  ok "F2.4 limit 5 records 1 5" "$(has reads-s4 "main $f 1 5"; echo $?)"
+  rdc "F2.4 offset 10 limit 3 passes"              0 "$br" s4 "" "" 10 3 "$f"
+  ok "F2.4 offset 10 limit 3 records 10 12" "$(has reads-s4 "main $f 10 12"; echo $?)"
+  rdc "F2.5 read: offset 1 limit 400 is whole"     2 "$br" s5 "" "" 1 400 "$f"
+  rdc "F2.5 read: limit past the end is whole"     2 "$br" s5 "" "" 1 1000 "$f"
+  rdc "F2.5 read: offset 1 alone is whole"         2 "$br" s5 "" "" 1 "" "$f"
+  ok "F2.5 read: whole-file denials record nothing" "$([ ! -e "$st/reads-s5" ]; echo $?)"
+  rdc "F2.7 budget denial 1 of 3"                  0 "$br" s7 "" "" 1 300 "$f"
+  rdc "F2.7 denied 1"                              2 "$br" s7 "" "" 301 60 "$f"
+  rdc "F2.7 denied 2"                              2 "$br" s7 "" "" 301 60 "$f"
+  rdc "F2.7 whole-file denial shares the counter"  2 "$br" s7 "" "" "" "" "$f"
+  rdc "F2.7 4th read passes"                       0 "$br" s7 "" "" 301 60 "$f"
+  ok "F2.7 loop guard pass is recorded" "$(has reads-s7 "main $f 301 360"; echo $?)"
+  ok "F2.7 log notes the loop guard" "$(grep -q 'loop guard' "$st/gate.log"; echo $?)"
+  rdc "F2.8 reader whole read passes"              0 "$br" s8 "" reader "" "" "$f"
+  rdc "F2.8 spec-critic range passes"              0 "$br" s8 "" ionian-harness:spec-critic 1 400 "$f"
+  ok "F2.8 exempt agents record nothing" "$([ ! -e "$st/reads-s8" ]; echo $?)"
+  mkdir -p "$st"; : > "$st/reads-s9"; chmod 000 "$st/reads-s9"
+  rdc "F2.9 unreadable state fails open"           0 "$br" s9 "" "" 1 300 "$f"
+  ok "F2.9 log says state error" "$(grep -q 'state error' "$st/gate.log"; echo $?)"
+  rdc "F2.9 whole-file denial unaffected"          2 "$br" s9 "" "" "" "" "$f"
+  chmod 600 "$st/reads-s9"
+  rdc "F2.10 file_budget 100 denies 1-150"         2 "$br2" s10 "" "" 1 150 "$br2/big.txt"
+  rdc "F2.10 file_budget 100 allows 1-100"         0 "$br2" s10b "" "" 1 100 "$br2/big.txt"
+  rdc "F2.11 whole read of 200-line file passes"   0 "$br" s11 "" "" "" "" "$br/mid.txt"
+  rdc "F2.11 range of 200-line file passes"        0 "$br" s11 "" "" 1 200 "$br/mid.txt"
+  ok "F2.11 not-large files are not recorded" "$([ ! -e "$st/reads-s11" ]; echo $?)"
+  rdc "images are not counted"                     0 "$br" s12 "" "" 1 5 "$br/shot.png"
+  ok "images record nothing" "$([ ! -e "$st/reads-s12" ]; echo $?)"
+  rdc "F2.19 read 1-350 passes"                    0 "$br" s19 "" "" 1 350 "$f"
+  rdc "F2.19 then 351-400 denied"                  2 "$br" s19 "" "" 351 50 "$f"
+  rdc "F2.20 agent a1 reads 1-300"                 0 "$br" s20 a1 general-purpose 1 300 "$f"
+  rdc "F2.20 agent b1 reads 1-300"                 0 "$br" s20 b1 general-purpose 1 300 "$f"
+  ok "F2.20 state has both agents" "$(has reads-s20 "a1 $f 1 300" && has reads-s20 "b1 $f 1 300"; echo $?)"
+  for i in 1 2 3; do rdc "F2.21 a1 whole read denied $i" 2 "$br" s21 a1 general-purpose "" "" "$f"; done
+  rdc "F2.21 b1 first whole read denied"           2 "$br" s21 b1 general-purpose "" "" "$f"
+  rdc "F2.21 a1 4th passes"                        0 "$br" s21 a1 general-purpose "" "" "$f"
+  # the gate never denies what it cannot measure: small files, missing files, plain commands
+  rdc "small file whole read passes"               0 "$br" s22 "" "" "" "" "$br/mid.txt"
+  rdc "missing file read passes"                   0 "$br" s22 "" "" "" "" "$br/nope.txt"
+  rdc "missing file with offset passes"            0 "$br" s22 "" "" 5 10 "$br/nope.txt"
+  rdc "relative path is resolved against cwd"      0 "$br" s23 "" "" 1 300 big.txt
+  ok "relative path is recorded absolute" "$(has reads-s23 "main $br/big.txt 1 300"; echo $?)"
+  rc=0; jq -nc --arg c "$br" '{tool_name:"Bash",session_id:"s25",cwd:$c,tool_input:{command:"ls"}}' | (cd "$br" && bash "$R" >/dev/null 2>&1) || rc=$?
+  ok "bash ls passes" "$rc"
+  rm -rf "$br" "$br2" "$br3"
 }
 g_commit1() {
   tmp="$(mktemp -d)"; git -C "$tmp" init -q; printf 'line %d\n' $(seq 1 400) > "$tmp/big.txt"; echo hi > "$tmp/small.txt"
@@ -371,7 +460,7 @@ run_group() {  # name: run the group in a subshell, output and counters to files
   ( n=0; fail=0; "$1"; echo "$n $fail" > "$OUT/$1.rc" ) > "$OUT/$1.out" 2>&1 &
 }
 OUT="$TROOT/out"; mkdir "$OUT"
-groups="g_read1 g_read2 g_failopen g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
+groups="g_read1 g_read2 g_failopen g_budget g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
 for g in $groups; do run_group $g; done
 wait
 total=0
