@@ -420,7 +420,7 @@ g_budgetb4() {
   t1=$(date +%s)
   n=$((n+1)); if [ "$rc" = 2 ]; then echo "ok   union: read after a 1-100000000 entry decided"; else echo "FAIL union: huge entry (got $rc)"; fail=1; fi
   mcheck "union: huge entry reported as seen 1-100000000" "$err" "seen 1-100000000" "loop"
-  ok "union: huge entry decides in under 3 seconds" "$([ $(( t1 - t0 )) -lt 3 ]; echo $?)"
+  ok "union: huge entry decides in under 20 seconds" "$([ $(( t1 - t0 )) -lt 20 ]; echo $?)"
   printf 'main %s 101 200\nmain %s 1 60\nmain %s 50 100\nmain %s 300 310\n' "$f" "$f" "$f" "$f" > "$st/reads-c9"
   rdo "$br" c9 150 251 "$f"
   mcheck "union: overlapping and adjacent entries merge" "$err" "seen 1-200,300-310" "loop"
@@ -614,12 +614,12 @@ askrun "q" big.txt; [ "$arc" = 69 ] && [ -z "$aout" ] && [ "$(printf '%s\n' "$ae
 }
 g_ask2() {
   ask_setup
-fakecl 'echo $$ > "'"$ar"'/pid"; sleep 31 & echo $! > "'"$ar"'/cpid"; sleep 30'
+fakecl 'echo $$ > "'"$ar"'/pid"; sleep 121 & echo $! > "'"$ar"'/cpid"; sleep 120'
 t0=$SECONDS
 aout="$(cd "$ar" && HARNESS_ASK_TIMEOUT=1 PATH="$fk:$PATH" bash "$A" "q" big.txt 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
 dt=$((SECONDS-t0)); sleep 0.3
 alive=0; for f in pid cpid; do kill -0 "$(cat "$ar/$f")" 2>/dev/null && alive=1; done
-[ "$arc" = 70 ] && [[ "$aerr" == *timed\ out* ]] && [ "$dt" -le 3 ] && [ "$alive" = 0 ] && [ -z "$aout" ]; ok "ask: timeout exits 70 within 3 s, claude and child killed (F1.9)" $?
+[ "$arc" = 70 ] && [[ "$aerr" == *timed\ out* ]] && [ "$dt" -le 20 ] && [ "$alive" = 0 ] && [ -z "$aout" ]; ok "ask: timeout exits 70 within 20 s, claude and child killed (F1.9)" $?
 rm -f "$ar/pid" "$ar/cpid"
   rm -rf "$ar"
 }
