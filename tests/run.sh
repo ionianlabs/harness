@@ -498,6 +498,12 @@ g_session() {
   seed s12 3000; chmod 000 "$st/mainlines-s12"; rdo "$br" s12 "" "" "$br/l41.txt"; want "an unreadable mainlines file fails open" 0
   ok "the unreadable file is logged as a state error" "$(grep -q 'state error' "$st/gate.log"; echo $?)"
   chmod 600 "$st/mainlines-s12"
+  seed s14 99999999999999999999999; rdo "$br" s14 "" "" "$br/l100.txt"; want "a corrupt 23-digit mainlines line does not deny a 100-line Read" 0
+  mcheck "the corrupt line gives no denial text" "$err" "" "loaded"
+  printf '99999999999999999999999\n3000\n' > "$st/mainlines-s14b"; rdo "$br" s14b "" "" "$br/l100.txt"
+  want "a corrupt line is skipped and the valid 3000 still counts" 2
+  mkdir -p "$st/mainlines-s15"; rdo "$br" s15 "" "" "$br/l100.txt"; want "a directory as mainlines passes" 0
+  ok "a directory as mainlines prints nothing on stderr" "$([ -z "$err" ]; echo $?)"
   bdc "an ordinary git status on the main thread passes" 0 "$br" s13 "" "" "git status"
   ok "git status counts nothing" "$([ ! -e "$st/mainlines-s13" ]; echo $?)"
   rm -rf "$br" "$br2"

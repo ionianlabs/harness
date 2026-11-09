@@ -68,22 +68,24 @@ record() {  # appends the pending ranges and the current one; a failed write is 
   if [ -n "$rec_start" ]; then pending="$pending$akey $rec_path $rec_start $rec_end"$'\n'; rec_start=""; fi
   if [ -n "$mcur" ]; then mpend="$mpend$mcur"$'\n'; mcur=""; fi
   if [ -n "$pending" ]; then
-    printf '%s' "$pending" >> "$reads" 2>/dev/null || echo "  -> state error, allowed" >> "$log"
+    printf '%s' "$pending" 2>/dev/null >> "$reads" || echo "  -> state error, allowed" >> "$log"
     pending=""
   fi
   if [ -n "$mpend" ]; then
-    printf '%s' "$mpend" >> "$mainlines" 2>/dev/null || echo "  -> state error, allowed" >> "$log"
+    printf '%s' "$mpend" 2>/dev/null >> "$mainlines" || echo "  -> state error, allowed" >> "$log"
     mpend=""; msum=0
   fi
 }
 m_judge() {  # $1 file  $2 its line count; the main thread's read of $mcur lines, denied once the session total is at the budget
   [ -n "$mcur" ] || return 0
   local t=0 l bud small
-  if [ -e "$mainlines" ]; then
+  if [ -f "$mainlines" ]; then
     if [ ! -r "$mainlines" ]; then echo "  -> state error, allowed" >> "$log"; mcur=""; return 0; fi
-    while IFS= read -r l; do if [[ "$l" =~ ^[0-9]+$ ]]; then t=$(( t + 10#$l )); fi; done <"$mainlines"
+    # only plain counts of at most 9 digits are summed; anything else in the file is skipped
+    while IFS= read -r l; do if [[ "$l" =~ ^[0-9]{1,9}$ ]]; then t=$(( t + 10#$l )); fi; done <"$mainlines"
   fi
   t=$(( t + msum ))
+  if [ "$t" -lt 0 ] 2>/dev/null; then echo "  -> state error, allowed" >> "$log"; mcur=""; return 0; fi
   need_repo
   bud="$(bash "$here/lib/config.sh" "$repo" read.session_budget 3000 2>/dev/null)"
   [[ "$bud" =~ ^[0-9]+$ ]] || bud=3000
