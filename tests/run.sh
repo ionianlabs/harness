@@ -1,15 +1,36 @@
 #!/bin/bash
 # Unit tests for the hooks: fake payloads in, exit codes out. Under 30 seconds.
+# Independent groups run in parallel subshells; output is replayed in group order, so the
+# log, the final count and the exit code are deterministic.
 cd "$(dirname "$0")/.." || exit 1
 export HARNESS_STATE_TMP=1
+ROOT="$PWD"
+TROOT="$(mktemp -d)"; export TMPDIR="$TROOT"   # every fixture lives under one root, removed at the end
+SBX="$(mktemp -d)"; git -C "$SBX" init -q       # cwd for payloads without a cwd: hooks log here, never into this repo
 fail=0; n=0
 check() {  # name, expected exit, hook, payload
   n=$((n+1)); local got
-  echo "$4" | bash "$3" >/dev/null 2>&1; got=$?
+  echo "$4" | (cd "$SBX" && bash "$3") >/dev/null 2>&1; got=$?
   if [ "$got" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (expected $2, got $got)"; fail=1; fi
 }
 tmp="$(mktemp -d)"; git -C "$tmp" init -q; printf 'line %d\n' $(seq 1 400) > "$tmp/big.txt"; echo hi > "$tmp/small.txt"
-R="hooks/read-gate.sh"; C="hooks/commit-gate.sh"
+R="$ROOT/hooks/read-gate.sh"; C="$ROOT/hooks/commit-gate.sh"; unset IONIAN_HOME
+fresh="$(mktemp -d)"
+repo_with() {  # extra harness.toml text, then files to stage; prints the repo dir
+  local d; d="$(mktemp -d "$fresh/r.XXXXXX")"; git -C "$d" init -q
+  printf '[test]\nunit = "true"\ndir = "tests"\n[security]\nsecrets = "true"\n%b' "$1" > "$d/harness.toml"; shift
+  for f in "$@"; do mkdir -p "$d/$(dirname "$f")"; echo x > "$d/$f"; git -C "$d" add "$f"; done
+  echo "$d"
+}
+commit() { echo "{\"tool_name\":\"Bash\",\"cwd\":\"$1\",\"tool_input\":{\"command\":\"git commit -m '$2'\"}}"; }
+bash_cmd() { jq -nc --arg c "$1" --arg d "${2:-$tmp}" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}'; }
+ok() {  # name, condition result (0 = pass)
+  n=$((n+1)); if [ "$2" = 0 ]; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi
+}
+mcheck() {  # name, message, wanted substring, unwanted substring
+  n=$((n+1)); if [[ "$2" == *"$3"* && "$2" != *"$4"* ]]; then echo "ok   $1"; else echo "FAIL $1: $2"; fail=1; fi
+}
+g_read1() {
 check "read: small file passes"            0 $R "{\"tool_name\":\"Read\",\"session_id\":\"t1\",\"cwd\":\"$tmp\",\"tool_input\":{\"file_path\":\"$tmp/small.txt\"}}"
 check "read: big file denied"              2 $R "{\"tool_name\":\"Read\",\"session_id\":\"t1\",\"cwd\":\"$tmp\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}"
 check "read: offset/limit passes"          0 $R "{\"tool_name\":\"Read\",\"session_id\":\"t1\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\",\"offset\":10,\"limit\":3}}"
@@ -47,6 +68,8 @@ check "bash: head -3 big passes"           0 $R "$(bcmd "head -3 $tmp/big.txt")"
 check "bash: tail -n5 big passes"          0 $R "$(bcmd "tail -n5 $tmp/big.txt")"
 check "bash: head -n 5000 small passes"    0 $R "$(bcmd "head -n 5000 $tmp/small.txt")"
 check "bash: pipe elsewhere, cat big denied" 2 $R "$(bcmd "cat $tmp/big.txt; ls | wc -l")"
+}
+g_read2() {
 # images and PDFs are rendered by Read, not loaded as lines; newline bytes in them are no line count
 printf '\x89PNG\r\n\x1a\n%.0s' $(seq 1 400) > "$tmp/shot.png"; cp "$tmp/big.txt" "$tmp/doc.pdf"
 check "read: big png passes"               0 $R "{\"tool_name\":\"Read\",\"session_id\":\"t8\",\"tool_input\":{\"file_path\":\"$tmp/shot.png\"}}"
@@ -54,16 +77,16 @@ check "read: big pdf passes"               0 $R "{\"tool_name\":\"Read\",\"sessi
 # a subagent cannot dispatch the reader, so its denial must name a step it can take
 msg_has() {  # name, agent_type, expected substring, unwanted substring
   n=$((n+1)); local m
-  m="$(echo "{\"tool_name\":\"Read\",\"agent_type\":\"$2\",\"session_id\":\"t9-$2\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash $R 2>&1 >/dev/null)"
+  m="$(echo "{\"tool_name\":\"Read\",\"agent_type\":\"$2\",\"session_id\":\"t9-$2\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | (cd "$SBX" && bash $R) 2>&1 >/dev/null)"
   if [[ "$m" == *"$3"* && "$m" != *"$4"* ]]; then echo "ok   $1"; else echo "FAIL $1: $m"; fail=1; fi
 }
 # F1.11-F1.13: every denial names the ask.sh command; fallback text without claude or with ask = false
-ROOT="$PWD"; NOCLAUDE="$(tr : '\n' <<<"$PATH" | grep -vxF "$(dirname "$(command -v claude)")" | paste -sd: -)"
+NOCLAUDE="$(tr : '\n' <<<"$PATH" | grep -vxF "$(dirname "$(command -v claude)")" | paste -sd: -)"
 askrepo="$(mktemp -d)"; git -C "$askrepo" init -q; printf '[read]\nask = "false"\n' > "$askrepo/harness.toml"
 dmsg() {  # session, agent_id, agent_type, cwd, PATH ; prints the denial stderr, run in a throwaway repo
   jq -nc --arg s "$1" --arg i "$2" --arg t "$3" --arg c "$4" --arg f "$tmp/big.txt" \
     '{tool_name:"Read",session_id:$s,agent_id:$i,agent_type:$t,cwd:$c,tool_input:{file_path:$f}}' \
-    | (cd "$tmp" && PATH="$5" bash "$ROOT/$R" 2>&1 >/dev/null)
+    | (cd "$tmp" && PATH="$5" bash "$R" 2>&1 >/dev/null)
 }
 mcheck() {  # name, message, wanted substring, unwanted substring
   n=$((n+1)); if [[ "$2" == *"$3"* && "$2" != *"$4"* ]]; then echo "ok   $1"; else echo "FAIL $1: $2"; fail=1; fi
@@ -87,18 +110,20 @@ mcheck "read: ask = false, subagent gets fallback"         "$m" "Grep (or grep -
 n=$((n+1)); if grep -q "agent=main tool=Read session=f11a " "$tmp/.git/harness/gate.log"; then echo "ok   read: log line carries session"; else echo "FAIL read: log line carries session"; fail=1; fi
 # read: documented gap: outside a git repo the denial counter lives in /tmp/harness (shared by every non-git cwd); kept because a per-user path would need a decision on cleanup
 ng="$(mktemp -d)"; rm -f /tmp/harness/denials-gapsess
-(cd "$ng" && echo "{\"tool_name\":\"Read\",\"session_id\":\"gapsess\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash "$OLDPWD/$R" >/dev/null 2>&1)
+(cd "$ng" && echo "{\"tool_name\":\"Read\",\"session_id\":\"gapsess\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash "$R" >/dev/null 2>&1)
 if [ -f /tmp/harness/denials-gapsess ]; then echo "ok   read: documented gap: state outside git lives in /tmp/harness"; else echo "FAIL read: documented gap: state outside git lives in /tmp/harness"; fail=1; fi
 n=$((n+1)); rm -rf "$ng"
-for i in 1 2 3; do echo "{\"tool_name\":\"Read\",\"session_id\":\"t3\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash $R >/dev/null 2>&1; done
+for i in 1 2 3; do echo "{\"tool_name\":\"Read\",\"session_id\":\"t3\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | (cd "$SBX" && bash $R) >/dev/null 2>&1; done
 check "read: loop guard, 4th passes"       0 $R "{\"tool_name\":\"Read\",\"session_id\":\"t3\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}"
+}
+g_commit1() {
+  tmp="$(mktemp -d)"; git -C "$tmp" init -q; printf 'line %d\n' $(seq 1 400) > "$tmp/big.txt"; echo hi > "$tmp/small.txt"
 # commit gate, in a throwaway repo with its own harness.toml
 printf '[test]\nunit = "true"\ndir = "tests"\n[security]\nsecrets = "true"\n' > "$tmp/harness.toml"
 mkdir -p "$tmp/tests" "$tmp/src"; echo "x=1" > "$tmp/src/a.py"; git -C "$tmp" add -A
 check "commit: non-commit bash ignored"    0 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git status\"}}"
 check "commit: --no-verify denied"         2 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git commit --no-verify -m x\"}}"
 # every way of spelling a commit reaches the gate; --no-verify makes "recognised" visible as exit 2
-bash_cmd() { jq -nc --arg c "$1" --arg d "${2:-$tmp}" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}'; }
 for c in 'git -c user.name=x commit --no-verify -m x' 'git --no-pager commit --no-verify -m x' \
          "bash -c 'git commit --no-verify -m x'" 'sh -c "git commit --no-verify -m x"' \
          $'cd /tmp\ngit commit --no-verify -m x' 'env A=1 git commit --no-verify -m x' \
@@ -116,15 +141,10 @@ printf '[test]\nunit = "false"\n[security]\nsecrets = "true"\n' > "$tmp/harness.
 check "commit: red unit suite denied"      2 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git commit -m x\"}}"
 printf '[test]\nunit = "true"\n[security]\nsecrets = "false"\n' > "$tmp/harness.toml"
 check "commit: failed secret scan denied"  2 $C "{\"tool_name\":\"Bash\",\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"cd $tmp && git commit -m x\"}}"
-# shell scripts under hooks/ and lib/ count as source (docs/designs/commit-gate-shell-tests.md)
-fresh="$(mktemp -d)"
-repo_with() {  # extra harness.toml text, then files to stage; prints the repo dir
-  local d; d="$(mktemp -d "$fresh/r.XXXXXX")"; git -C "$d" init -q
-  printf '[test]\nunit = "true"\ndir = "tests"\n[security]\nsecrets = "true"\n%b' "$1" > "$d/harness.toml"; shift
-  for f in "$@"; do mkdir -p "$d/$(dirname "$f")"; echo x > "$d/$f"; git -C "$d" add "$f"; done
-  echo "$d"
 }
-commit() { echo "{\"tool_name\":\"Bash\",\"cwd\":\"$1\",\"tool_input\":{\"command\":\"git commit -m '$2'\"}}"; }
+g_commit2() {
+  tmp="$(mktemp -d)"; printf '[test]\nunit = "true"\n' > "$tmp/harness.toml"
+# shell scripts under hooks/ and lib/ count as source (docs/designs/commit-gate-shell-tests.md)
 d="$(repo_with "" hooks/x.sh)"
 check "commit: hooks/*.sh without tests denied" 2 $C "$(commit "$d" "change x")"
 commit "$d" "change x" | bash $C 2>&1 >/dev/null | grep -qF hooks/x.sh && echo "ok   commit: denial names hooks/x.sh" || { echo "FAIL commit: denial names hooks/x.sh"; fail=1; }
@@ -135,7 +155,6 @@ check "commit: hooks/*.sh plus test passes" 0 $C "$(commit "$(repo_with "" hooks
 check "commit: hooks/*.sh [no-tests] passes" 0 $C "$(commit "$(repo_with "" hooks/x.sh)" "change x [no-tests] comment only")"
 check "commit: require_tests false passes"  0 $C "$(commit "$(repo_with '[gate]\nrequire_tests = "false"\n' hooks/x.sh)" "change x")"
 # the gate acts only where a harness config exists: repo harness.toml or ~/Ionian/harness/<repo>.toml (IONIAN_HOME overrides ~/Ionian)
-unset IONIAN_HOME
 home="$(mktemp -d "$fresh/home.XXXXXX")"
 d="$(repo_with "" src/a.py)"; rm "$d/harness.toml"
 HOME="$home" check "commit: unconfigured repo left alone" 0 $C "$(commit "$d" "add a")"
@@ -143,7 +162,7 @@ HOME="$home" check "commit: unconfigured --no-verify left alone" 0 $C "$(bash_cm
 [ ! -e "$d/.git/harness" ] && echo "ok   commit: unconfigured repo gets no .git/harness" || { echo "FAIL commit: unconfigured repo gets no .git/harness"; fail=1; }
 mkdir -p "$home/Ionian/harness"; printf '[test]\nunit = "true"\n[security]\nsecrets = "true"\n' > "$home/Ionian/harness/$(basename "$d").toml"
 HOME="$home" check "commit: home config gates the repo" 2 $C "$(commit "$d" "add a")"
-check "config: reads section.key"          0 lib/config.sh ""
+check "config: reads section.key"          0 "$ROOT/lib/config.sh" ""
 [ "$(lib/config.sh "$tmp" test.unit)" = "true" ] && echo "ok   config: value" || { echo "FAIL config: value"; fail=1; }
 [ "$(lib/config.sh "$tmp" nope.key dflt)" = "dflt" ] && echo "ok   config: default" || { echo "FAIL config: default"; fail=1; }
 bash lib/config.sh "$tmp" --exists && echo "ok   config: --exists with repo file" || { echo "FAIL config: --exists with repo file"; fail=1; }
@@ -162,6 +181,9 @@ h3="$(mktemp -d "$fresh/home.XXXXXX")"; mkdir -p "$h3/.config/harness"
 printf '[test]\nunit = "old"\n' > "$h3/.config/harness/$nm.toml"
 [ -z "$(HOME="$h3" lib/config.sh "$rn" test.unit)" ] && echo "ok   config: old ~/.config/harness not read" || { echo "FAIL config: old ~/.config/harness not read"; fail=1; }
 HOME="$h3" bash lib/config.sh "$rn" --exists && { echo "FAIL config: old location not counted by --exists"; fail=1; } || echo "ok   config: old location not counted by --exists"
+}
+g_commit3() {
+  home="$(mktemp -d "$fresh/home.XXXXXX")"
 # git -C <dir> commit is checked against the repo at <dir>, relative to the payload cwd
 unc="$(repo_with "" src/a.py)"; rm "$unc/harness.toml"
 cfgd="$(repo_with "" src/a.py)"
@@ -188,6 +210,9 @@ check "commit: commit-tree with -C denied" 2 $C "$(bash_cmd 'git -C . commit-tre
 for c in 'git log --format=%T' 'git write-tree' 'git rev-parse HEAD^{tree}' 'git show --format=%T -s HEAD'; do
   check "commit: not commit-tree: $c" 0 $C "$(bash_cmd "$c" "$clean")"
 done
+}
+g_commit4() {
+  clean="$(repo_with "")"
 # heredoc bodies fed to a non-shell command are data; fed to a shell (or when unsure) they are still checked
 srcrepo="$(repo_with "" src/a.py)"
 check "commit: python heredoc mentioning commit-tree passes" 0 $C "$(bash_cmd $'python3 - <<\'EOF\'\ns = "`git commit-tree` denied"\nEOF' "$clean")"
@@ -213,6 +238,8 @@ check "commit: cat heredoc piped to sh -s denied" 2 $C "$(bash_cmd $'cat <<EOF |
 check "commit: cat heredoc to file then bash file denied" 2 $C "$(bash_cmd $'cat <<EOF > run.sh && bash run.sh\ngit commit-tree x\nEOF' "$clean")"
 check "commit: cat heredoc to notes.md passes" 0 $C "$(bash_cmd $'cat <<EOF > notes.md\ngit commit-tree x\nEOF' "$clean")"
 check "commit: python heredoc printing commit-tree passes" 0 $C "$(bash_cmd $'python3 - <<EOF\nprint("git commit-tree x")\nEOF' "$clean")"
+}
+g_secret() {
 # live secret scan: the real gitleaks binary against staged content (skipped when it is not installed)
 if command -v gitleaks >/dev/null 2>&1; then
   live="$(repo_with '' src/a.py tests/a_test.sh)"
@@ -231,16 +258,19 @@ if command -v gitleaks >/dev/null 2>&1; then
 else
   echo "skip secret: live gitleaks checks (gitleaks not installed)"
 fi
+}
 # ask.sh: fake claude first on PATH, throwaway git repo so gate.log never lands in this repo
-A="$PWD/lib/ask.sh"; ar="$(mktemp -d)"; git -C "$ar" init -q; fk="$ar/fake"; mkdir "$fk"
-printf 'line %d\n' $(seq 1 400) > "$ar/big.txt"; printf 'alpha\nbeta\n' > "$ar/two.txt"
+A="$ROOT/lib/ask.sh"
+ask_setup() {  # own throwaway repo with a fake claude dir, big.txt and two.txt
+  ar="$(mktemp -d)"; git -C "$ar" init -q; fk="$ar/fake"; mkdir "$fk"
+  printf 'line %d\n' $(seq 1 400) > "$ar/big.txt"; printf 'alpha\nbeta\n' > "$ar/two.txt"
+}
 fakecl() { printf '#!/bin/bash\n%s\n' "$1" > "$fk/claude"; chmod +x "$fk/claude"; }
 askrun() {  # args to ask.sh; sets aout, aerr, arc; runs inside the throwaway repo
   aout="$(cd "$ar" && PATH="$fk:$PATH" bash "$A" "$@" 2>"$ar/err" </dev/null)"; arc=$?; aerr="$(cat "$ar/err")"
 }
-ok() {  # name, condition result (0 = pass)
-  n=$((n+1)); if [ "$2" = 0 ]; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi
-}
+g_ask1() {
+  ask_setup
 fakecl 'cat'
 askrun "where is line 200?" big.txt
 [ "$arc" = 0 ] && [[ "$aout" == *"where is line 200?"* ]] && [[ "$aout" == *"<file path=\"$ar/big.txt\">"* ]] \
@@ -269,6 +299,10 @@ aout="$(cd "$ar" && PATH="$nc" "$nc/bash" "$A" "q" big.txt 2>"$ar/err")"; arc=$?
 [ "$arc" = 68 ] && [[ "$aerr" == *claude* ]]; ok "ask: claude not on PATH exits 68 (F1.7)" $?
 fakecl 'echo "API error"; exit 1'
 askrun "q" big.txt; [ "$arc" = 69 ] && [ -z "$aout" ] && [ "$(printf '%s\n' "$aerr" | wc -l | tr -d ' ')" = 1 ]; ok "ask: failing call exits 69, stdout empty, one stderr line (F1.8)" $?
+  rm -rf "$ar"
+}
+g_ask2() {
+  ask_setup
 fakecl 'echo $$ > "'"$ar"'/pid"; sleep 31 & echo $! > "'"$ar"'/cpid"; sleep 30'
 t0=$SECONDS
 aout="$(cd "$ar" && HARNESS_ASK_TIMEOUT=1 PATH="$fk:$PATH" bash "$A" "q" big.txt 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
@@ -276,6 +310,10 @@ dt=$((SECONDS-t0)); sleep 0.3
 alive=0; for f in pid cpid; do kill -0 "$(cat "$ar/$f")" 2>/dev/null && alive=1; done
 [ "$arc" = 70 ] && [[ "$aerr" == *timed\ out* ]] && [ "$dt" -le 3 ] && [ "$alive" = 0 ] && [ -z "$aout" ]; ok "ask: timeout exits 70 within 3 s, claude and child killed (F1.9)" $?
 rm -f "$ar/pid" "$ar/cpid"
+  rm -rf "$ar"
+}
+g_ask3() {
+  ask_setup
 fakecl 'cat >/dev/null; echo ok'
 rm -rf "$ar/.git/harness"
 unset CLAUDE_SESSION_ID; askrun "q" big.txt two.txt
@@ -311,6 +349,20 @@ sid="$(printf 'ab\nx=y')"
 aout="$(cd "$ar" && CLAUDE_SESSION_ID="$sid" PATH="$fk:$PATH" bash "$A" "q" two.txt 2>/dev/null)"
 ll="$(tail -1 "$ar/.git/harness/gate.log")"
 [[ "$ll" == *"tool=ask session=ab_x_y files=1 "* ]] && [ "$(grep -c 'tool=ask session=ab_x_y' "$ar/.git/harness/gate.log")" = 1 ]; ok "ask: session id in gate.log is sanitized" $?
-rm -rf "$ar"
-rm -rf "$tmp" "$fresh" /tmp/harness
-echo "$n checks"; exit $fail
+  rm -rf "$ar"
+}
+run_group() {  # name: run the group in a subshell, output and counters to files
+  ( n=0; fail=0; "$1"; echo "$n $fail" > "$OUT/$1.rc" ) > "$OUT/$1.out" 2>&1 &
+}
+OUT="$TROOT/out"; mkdir "$OUT"
+groups="g_read1 g_read2 g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
+for g in $groups; do run_group $g; done
+wait
+total=0
+for g in $groups; do
+  cat "$OUT/$g.out"
+  if [ -s "$OUT/$g.rc" ]; then read -r gn gf < "$OUT/$g.rc"; total=$((total+gn)); [ "$gf" = 0 ] || fail=1
+  else echo "FAIL group $g did not finish"; fail=1; fi
+done
+rm -rf "$TROOT" /tmp/harness
+echo "$total checks"; exit $fail
