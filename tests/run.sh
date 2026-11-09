@@ -126,7 +126,7 @@ g_failopen() {
   runwrap; rc=$?; n=$((n+1)); if [ "$rc" = 2 ]; then echo "ok   failopen: intact gate through hooks.json still denies"; else echo "FAIL failopen: intact gate through hooks.json (got $rc)"; fail=1; fi
   echo 'if [ then' >> "$pr/hooks/read-gate.sh"
   runwrap; rc=$?; n=$((n+1)); if [ "$rc" = 0 ]; then echo "ok   failopen: gate with a syntax error is skipped"; else echo "FAIL failopen: gate with a syntax error (got $rc)"; fail=1; fi
-  n=$((n+1)); if [ "$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[0].command' "$ROOT/hooks/hooks.json")" = 'bash ${CLAUDE_PLUGIN_ROOT}/hooks/commit-gate.sh' ]; then echo "ok   failopen: commit gate entry unchanged"; else echo "FAIL failopen: commit gate entry changed"; fail=1; fi
+  n=$((n+1)); if [ "$(jq -r '.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[0].command' "$ROOT/hooks/hooks.json")" = 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/commit-gate.sh"' ]; then echo "ok   failopen: commit gate entry unchanged"; else echo "FAIL failopen: commit gate entry changed"; fail=1; fi
   # a payload that reaches deny with an empty path (limit -1 makes the empty file count as large) is allowed and logged
   jq -nc --arg c "$d" '{tool_name:"Bash",session_id:"fo2",cwd:$c,tool_input:{command:"cat \"\""}}' | (cd "$d" && HARNESS_READ_LIMIT=-1 bash "$R" >/dev/null 2>&1); rc=$?
   n=$((n+1)); if [ "$rc" = 0 ] && grep -q 'gate error, allowed' "$d/.git/harness/gate.log"; then echo "ok   failopen: empty path reaching deny is allowed and logged"; else echo "FAIL failopen: empty path reaching deny (got $rc)"; fail=1; fi
