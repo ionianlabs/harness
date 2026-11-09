@@ -1,23 +1,21 @@
 ---
 repo: harness
-updated: 2026-11-08
+updated: 2026-11-09
 ---
 
 ## Goal
 A plugin (Claude Code first, Copilot later) that makes agent-built code trustworthy without ceremony: one coordinator thread, zero-context workers, hook-enforced gates. Design in `CONCEPT.md`.
 
 ## Active workstream
-Pilot logs: read gate barely acts (7 of 10 denials were screenshots, reader never dispatched, subagents told to do what they cannot); nothing enforces delegation. Quick fixes shipped (3f70237). Two specs, worker-drafted and through spec-review, `Status: reviewed`, awaiting approval, uncommitted:
-- `docs/designs/read-gate-v2.md`: `lib/ask.sh` (headless Haiku answers questions about files, target of every denial), per-agent per-file line budget across read forms, main-thread session read budget.
-- `docs/designs/coordinator-hands-off.md`: coder, reviewer, drafter agents (Sonnet, rules inline); spec-draft and spec-review route writes through the drafter; `hooks/handoff-gate.sh` denies main-thread repo writes (file tools and common Bash forms) and protects the harness config.
-Wording: sources framed as established practices we build on (1e136e7). 112 checks in `bash tests/run.sh`.
+Preparing the public beta (0.1.0): README, plugin manifest and stale facts fixed on branch `beta`. Both specs are approved and committed. Built so far: `lib/ask.sh`, the per-agent line budget on the read gate (Read and Bash forms), the coder, reviewer and drafter agents, and spec-draft and spec-review routing writes through the drafter. Not built: `hooks/handoff-gate.sh` and the main-thread session read budget. 433 checks in `bash tests/run.sh`.
 
 ## Architecture
 - `.claude-plugin/plugin.json`: manifest, MIT; skills and agents auto-discovered.
 - `hooks/hooks.json`: PreToolUse `Read|Bash` -> `hooks/read-gate.sh`; `Bash` -> `hooks/commit-gate.sh`.
 - `hooks/read-gate.sh`: denies untargeted reads over 350 lines; images and PDFs pass; exempt `reader` and `spec-*`; loop guard at three; fails open.
 - `hooks/commit-gate.sh`: only with a harness config; `--no-verify`, secret scan, unit suite, source needs a test change (`[no-tests]`); fails closed.
-- `agents/`: `reader` (Haiku), `spec-paraphrase`, `spec-critic`, `spec-readiness` (Opus).
+- `agents/`: `reader` (Haiku), `coder`, `reviewer`, `drafter` (Sonnet), `spec-paraphrase`, `spec-critic`, `spec-readiness` (Opus).
+- `lib/ask.sh`: headless Haiku answers a question about files; every read denial points to it.
 - `skills/`: `spec-draft`, `spec-review`, `tdd`, `state`.
 
 ## Decisions
@@ -26,14 +24,13 @@ Wording: sources framed as established practices we build on (1e136e7). 112 chec
 - Denials point to a shell command every agent can run, not an agent dispatch (read-gate-v2).
 - The hand-off gate protects its own config; only the user turns it off (coordinator-hands-off).
 - Protective gates fail closed, token-saving gates fail open.
-- Own wording throughout, so no `THIRD_PARTY.md` yet.
+- Own wording throughout; sources are credited in `README.md` and `CONCEPT.md`.
 
 ## Debt
-- Read gate: `||` is not split, so `cat big || true` passes (fixed by read-gate-v2 F2.24); `sed -n`, `awk`, `<`, `$( )` uncounted.
+- Read gate: `sed -n`, `awk`, `<`, `$( )` uncounted.
 - `tests/run.sh` payloads without `cwd` log into this repo's own `gate.log`.
 - Commit gate blind to commands built from variables and to heredocs run later.
 - `lib/config.sh` flat TOML. No `claude plugin eval` cases. Suite near its 30 s budget.
-- Pre-push guard refuses until the publish triage.
 
 ## Next
-User approves both specs, then build read-gate-v2 F1 with a coder worker, test first.
+Build the hand-off gate from `docs/designs/coordinator-hands-off.md` with a coder worker, test first.
