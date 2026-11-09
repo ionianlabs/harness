@@ -492,6 +492,7 @@ g_agents() {  # coordinator-hands-off F1, F4, F5: agent files and skill texts
   [ ! -e skills/spec-draft/template.md ]; ok "skills/spec-draft/template.md is removed (F1.9)" $?
   has_all "skills/spec-draft (F4)" skills/spec-draft/SKILL.md 'at most five' 'Why it matters:' 'problem with evidence' 'every user requirement' 'every decision' 'rejected alternatives' 'assumptions' 'out of scope' 'ionian-harness:drafter' 'could not place' 'every requirement in the brief' 'spec-review' 'If the drafter cannot be dispatched, tell the user and stop.'
   ! grep -qE 'template\.md|You are the drafter|Copy ' skills/spec-draft/SKILL.md; ok "skills/spec-draft: no instruction to write the spec on the main thread (F4.4)" $?
+  has_all "skills/spec-review (F5)" skills/spec-review/SKILL.md 'ionian-harness:drafter' 'fix list' 'Status: reviewed' 'Status: approved' 'verbatim' 'never into a reviewer dispatch' 'If the drafter cannot be dispatched, tell the user and stop.' 'findings 4, fixed 3, rejected 1'
   ! grep -qP '\x{2013}|\x{2014}' agents/coder.md agents/reviewer.md agents/drafter.md skills/*/SKILL.md 2>/dev/null; ok "agents and skills: no em or en dashes" $?
 }
 run_group() {  # name: run the group in a subshell, output and counters to files
