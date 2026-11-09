@@ -90,11 +90,11 @@ Rules: reads of png jpg jpeg gif webp pdf are not counted by F2 or F3. `cat` of 
 
 | Form | Rule |
 |---|---|
-| `cat`, `less`, `more`; `head`/`tail` with no count or a count over the read limit | denied whole-file |
+| `cat`, `less`, `more`; `head`/`tail` with a count over the read limit | denied whole-file |
 | `sed` without `-n` and without `-i` (prints every line) | denied whole-file |
-| `sed -n 'A,Bp'`, `sed -n Ap`, `sed -n 'A,$p'` (A to end), `head -n N`, `tail -n N`, `tail -n +K`, the two awk forms | counted as the range |
+| `sed -n 'A,Bp'`, `sed -n Ap`, `sed -n 'A,$p'` (A to end), `head -n N`, `tail -n N`, `tail -n +K`, `head`/`tail` with no count (10 lines), `sed Nq` (lines 1 to N), the two awk forms | counted as the range |
 | any counted range covering every line of the file | denied whole-file |
-| `sed -i`; `sed` with regex addresses; `head -c`, `tail -c` | passes uncounted |
+| `sed -i`; `sed` with regex addresses; `head -c`, `tail -c`; `tail -f`, `-F`, `--follow` | passes uncounted |
 
 Testability: unit. Tested on its own by feeding payload sequences with one session id into `hooks/read-gate.sh`; shows the exit codes, stderr and the content of `reads-<session>`.
 
@@ -163,4 +163,5 @@ none new. The `claude` CLI is already required by the host; `perl` and `awk` are
 - Round 1 (2026-11-08): paraphrase context missing, 0 divergences, 10 guesses; critic B0 M5 N4; readiness B0 M5 N3. Fixed 27, rejected 0, escalated 0. Not run: none.
 - Round 2 (2026-11-08): paraphrase context sufficient, 0 divergences, 6 guesses; critic B0 M0 N0, all 17 earlier resolved; readiness B1 M0 N0. Fixed 6 after the re-audit (R2-1 and five guess clarifications), dropped 1 Nit (usage line wording). Not run: none.
 - Fixed after round 2, unreviewed: R2-1 splitting at `||` (F2.24); five one-line clarifications of fallback denial content, loop guard after the 3rd denial, shared counter for F3, whole-range rule for Read, ask.sh check order.
+- Amended after code review (2026-11-09): head and tail without a count count 10 lines instead of a whole-file read; coordinator decision, lenient direction.
 - Approved (2026-11-09): the user replied "go" to the request "If you say I approve read-gate-v2, I'll record that in the spec and start right away".

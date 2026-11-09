@@ -47,21 +47,27 @@ record() {  # appends the pending ranges and the current one; a failed write is 
 }
 union() {  # $1 start $2 end; prints "<distinct lines seen if added><TAB><merged ranges seen so far>"
   # the ledger plus this call's pending ranges; the path is compared exactly, whatever it contains
+  # Intervals are sorted and merged, never enumerated, so a huge entry costs nothing.
+  set -o pipefail   # runs in the caller's command substitution: a failed read of the ledger is a state error
   local src="$reads"; [ -e "$src" ] || src=/dev/null
-  A="$akey" P="$rec_path" PEND="$pending" awk -v ns="$1" -v ne="$2" '
-    function add(line,   pre, rest, r, i) {
+  A="$akey" P="$rec_path" PEND="$pending" awk '
+    function add(line,   pre, rest, r) {
       pre = ENVIRON["A"] " " ENVIRON["P"] " "
       if (substr(line, 1, length(pre)) != pre) return
       rest = substr(line, length(pre) + 1)
       if (split(rest, r, " ") != 2 || r[1] !~ /^[0-9]+$/ || r[2] !~ /^[0-9]+$/) return
-      for (i = r[1] + 0; i <= r[2] + 0; i++) { seen[i] = 1; if (i > mx) mx = i }
+      print r[1] + 0, r[2] + 0
     }
     BEGIN { m = split(ENVIRON["PEND"], pl, "\n"); for (k = 1; k <= m; k++) if (pl[k] != "") add(pl[k]) }
-    { add($0) }
-    END { str = ""; c = 0; i = 1
-      while (i <= mx) { if (seen[i]) { j = i; while (seen[j+1]) j++; str = str (str == "" ? "" : ",") i "-" j; c += j - i + 1; i = j + 1 } else i++ }
-      for (i = ns; i <= ne; i++) if (!seen[i]) c++
-      printf "%d\t%s\n", c, str }' "$src" 2>/dev/null
+    { add($0) }' "$src" 2>/dev/null | sort -n -k1,1 | awk -v ns="$1" -v ne="$2" '
+    { if (cnt > 0 && $1 <= me + 1) { if ($2 > me) me = $2 }
+      else { cnt++; ms[cnt] = $1; me = $2 }
+      mend[cnt] = me }
+    END { str = ""; c = 0
+      for (i = 1; i <= cnt; i++) { str = str (str == "" ? "" : ",") ms[i] "-" mend[i]; c += mend[i] - ms[i] + 1 }
+      add = ne - ns + 1
+      for (i = 1; i <= cnt; i++) { lo = (ms[i] > ns ? ms[i] : ns); hi = (mend[i] < ne ? mend[i] : ne); if (hi >= lo) add -= hi - lo + 1 }
+      printf "%d\t%s\n", c + add, str }'
 }
 
 deny() {  # $1 file  $2 line count  $3 lines seen so far and $4 budget, for a budget denial
@@ -151,12 +157,43 @@ case "$tool" in
     }
     awk_one='^[[:space:]]*NR[[:space:]]*>=[[:space:]]*([0-9]+)[[:space:]]*&&[[:space:]]*NR[[:space:]]*<=[[:space:]]*([0-9]+)[[:space:]]*$'
     awk_two='^[[:space:]]*NR[[:space:]]*==[[:space:]]*([0-9]+)[[:space:]]*,[[:space:]]*NR[[:space:]]*==[[:space:]]*([0-9]+)[[:space:]]*$'
+    sed_quit='^[[:space:]]*([0-9]+)[[:space:]]*q[[:space:]]*$'
     sed_print='^[[:space:]]*([0-9]+)[[:space:]]*(,[[:space:]]*([0-9]+|\$))?[[:space:]]*p[[:space:]]*$'
     # split into simple commands at ; & && || and newlines outside quotes, in order, tracking cd;
     # each line is "<1 if the simple command has a pipe or redirect outside quotes, else 0><TAB><command>"
+    # Quote state carries across lines; heredoc bodies are skipped; an unterminated quote or heredoc
+    # ends the output with ERR and the gate fails open. A newline inside quotes is kept as \001.
+    segs="$(awk '
+      function emit() { print fl "\t" out; out = ""; fl = 0 }
+      BEGIN { q = ""; out = ""; fl = 0; hd = ""; dash = 0 }
+      { line = $0
+        if (hd != "") { t = line; if (dash) sub(/^\t+/, "", t); if (t == hd) hd = ""; next }
+        len = length(line)
+        for (i = 1; i <= len; i++) { c = substr(line, i, 1); d = substr(line, i + 1, 1)
+          if (q != "") { if (c == q) q = ""; out = out c }
+          else if (c == "\"" || c == "\x27") { q = c; out = out c }
+          else if (c == ";") emit()
+          else if (c == "&" && d == ">") { fl = 1; out = out "&>"; i++ }
+          else if (c == "&") emit()
+          else if (c == ">" && d == "&") { fl = 1; out = out ">&"; i++ }
+          else if (c == "|" && d == "|") { emit(); i++ }
+          else if (c == "<" && d == "<" && substr(line, i + 2, 1) != "<") {
+            j = i + 2; dash = 0
+            if (substr(line, j, 1) == "-") { dash = 1; j++ }
+            while (substr(line, j, 1) == " ") j++
+            Q = substr(line, j, 1); w = ""
+            if (Q == "\"" || Q == "\x27") { j++; while (j <= len && substr(line, j, 1) != Q) { w = w substr(line, j, 1); j++ }; j++ }
+            else while (j <= len && substr(line, j, 1) !~ /[ \t;&|<>()]/) { w = w substr(line, j, 1); j++ }
+            if (w != "") hd = w
+            out = out substr(line, i, j - i); i = j - 1 }
+          else { if (c == "|" || c == ">") fl = 1; out = out c } }
+        if (q != "") out = out "\001"; else emit() }
+      END { if (q != "" || hd != "") print "ERR" }' <<<"$cmd")"
+    if [ "${segs##*$'\n'}" = ERR ]; then echo "  -> parse error, allowed" >> "$log"; exit 0; fi
     while IFS=$'\t' read -r flag seg; do
       # a pipe or redirect makes only its own command targeted, not the whole chain
       [ "$flag" = 1 ] && continue
+      seg="${seg//$'\001'/$'\n'}"
       if [[ "$seg" =~ ^[[:space:]]*cd[[:space:]]+([^[:space:]]+) ]]; then
         t="${BASH_REMATCH[1]}"; case "$t" in /*) base="$t" ;; *) base="$base/$t" ;; esac
         continue
@@ -164,7 +201,7 @@ case "$tool" in
       w=()
       while IFS= read -r word; do w+=("$word"); done < <(xargs printf '%s\n' <<<"$seg" 2>/dev/null)  # xargs splits like a shell, so quoted paths stay whole
       [ "${#w[@]}" -gt 0 ] || continue
-      files=(); count=""; plus=0; bytes=0; i=1
+      files=(); count=""; plus=0; bytes=0; follow=0; i=1
       case "${w[0]}" in
         cat|less|more)
           for x in "${w[@]:1}"; do case "$x" in -*) ;; *) whole_file "$x" ;; esac; done
@@ -175,17 +212,23 @@ case "$tool" in
             case "$x" in
               -n) count="${w[$i]}"; i=$(( i + 1 )) ;;
               -n*) count="${x#-n}" ;;
+              --lines=*) count="${x#--lines=}" ;;
+              --lines) count="${w[$i]}"; i=$(( i + 1 )) ;;
+              --bytes=*) bytes=1 ;;
+              --bytes) bytes=1; i=$(( i + 1 )) ;;
+              -f|-F|--follow*) follow=1 ;;
               -c|-c*) bytes=1 ;;
               -[0-9]*) count="${x#-}" ;;
               -*) ;;
               *) files+=("$x") ;;
             esac
           done
-          [ "$bytes" = 1 ] && continue
+          if [ "$bytes" = 1 ] || [ "$follow" = 1 ]; then continue; fi
+          [ -n "$count" ] || count=10   # no count: head and tail deliver 10 lines
           case "$count" in +*) plus=1; count="${count#+}" ;; esac
           if [ -n "$count" ] && ! [[ "$count" =~ ^[0-9]+$ ]]; then echo "  -> parse error, allowed" >> "$log"; continue; fi
           for x in "${files[@]}"; do
-            if [ -z "$count" ] || { [ "$plus" = 0 ] && [ "$count" -gt "$LIMIT" ]; }; then whole_file "$x"
+            if [ "$plus" = 0 ] && [ "$count" -gt "$LIMIT" ]; then whole_file "$x"
             elif [ "${w[0]}" = head ]; then [ "$count" -ge 1 ] && range_of "$x" head "$count"
             elif [ "$plus" = 1 ]; then range_of "$x" abs "$count" '$'
             else [ "$count" -ge 1 ] && range_of "$x" tail "$count"; fi
@@ -209,16 +252,21 @@ case "$tool" in
           done
           if [ "$inplace" = 1 ] || [ "$skip" = 1 ]; then continue; fi
           if [ "${#scripts[@]}" = 0 ] || [ "${#files[@]}" = 0 ]; then continue; fi
-          if [ "$quiet" = 0 ]; then for x in "${files[@]}"; do whole_file "$x"; done; continue; fi
-          ranges=(); bad=""
+          ranges=(); bad=""; others=0; quit_at=""
           while IFS= read -r one; do
             [ -n "${one//[[:space:]]/}" ] || continue
             if [[ "$one" =~ $sed_print ]]; then
               b="${BASH_REMATCH[3]}"; [ -n "${BASH_REMATCH[2]}" ] || b="${BASH_REMATCH[1]}"
-              ranges+=("${BASH_REMATCH[1]} $b")
-            elif [[ "$one" == */* ]]; then bad=regex
-            else bad=parse; fi
+              ranges+=("${BASH_REMATCH[1]} $b"); others=1
+            elif [[ "$one" =~ $sed_quit ]]; then
+              if [ -z "$quit_at" ] || [ "${BASH_REMATCH[1]}" -lt "$quit_at" ]; then quit_at="${BASH_REMATCH[1]}"; fi
+            elif [[ "$one" == */* ]]; then bad=regex; others=1
+            else bad=parse; others=1; fi
           done < <(printf '%s\n' "${scripts[@]}" | tr ';' '\n')
+          if [ "$quiet" = 0 ]; then   # prints every line, up to a quit command if that is all there is
+            if [ "$others" = 0 ] && [ -n "$quit_at" ] && [ "$quit_at" -ge 1 ]; then ranges=("1 $quit_at")
+            else for x in "${files[@]}"; do whole_file "$x"; done; continue; fi
+          fi
           if [ "$bad" = parse ]; then echo "  -> parse error, allowed" >> "$log"; continue; fi
           [ -z "$bad" ] || continue   # regex addresses pass uncounted
           for x in "${files[@]}"; do for r in "${ranges[@]}"; do range_of "$x" abs ${r}; done; done
@@ -241,14 +289,7 @@ case "$tool" in
           fi
           ;;
       esac
-    done < <(awk '{ q=""; out=""; fl=0; len=length($0)
-        for (i=1;i<=len;i++) { c=substr($0,i,1)
-          if (q!="") { if (c==q) q=""; out=out c }
-          else if (c=="\"" || c=="\x27") { q=c; out=out c }
-          else if (c==";" || c=="&") { print fl "\t" out; out=""; fl=0 }
-          else if (c=="|" && substr($0,i+1,1)=="|") { print fl "\t" out; out=""; fl=0; i++ }
-          else { if (c=="|" || c==">") fl=1; out=out c } }
-        print fl "\t" out }' <<<"$cmd")
+    done <<<"$segs"
     record   # every read of the command passed: count them all
     ;;
 esac

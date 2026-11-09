@@ -48,7 +48,7 @@ check "read: other agent still denied"     2 $R "{\"tool_name\":\"Read\",\"agent
 check "bash: cat big denied"               2 $R "{\"tool_name\":\"Bash\",\"session_id\":\"t2\",\"tool_input\":{\"command\":\"cat $tmp/big.txt\"}}"
 check "bash: cat | head passes"            0 $R "{\"tool_name\":\"Bash\",\"session_id\":\"t2\",\"tool_input\":{\"command\":\"cat $tmp/big.txt | head -3\"}}"
 check "bash: head -n passes"               0 $R "{\"tool_name\":\"Bash\",\"session_id\":\"t2\",\"tool_input\":{\"command\":\"head -n 5 $tmp/big.txt\"}}"
-check "bash: head without -n denied"       2 $R "{\"tool_name\":\"Bash\",\"session_id\":\"t2\",\"tool_input\":{\"command\":\"head $tmp/big.txt\"}}"
+check "bash: head without -n counts 10 lines" 0 $R "{\"tool_name\":\"Bash\",\"session_id\":\"t2\",\"tool_input\":{\"command\":\"head $tmp/big.txt\"}}"
 bcmd() { jq -nc --arg c "$1" --arg d "$tmp" --argjson n "$n" '{tool_name:"Bash",session_id:("tb"+($ARGS.named.n|tostring)+"-'"$$"'"),cwd:$d,tool_input:{command:$c}}'; }
 check "bash: cat big 2>/dev/null denied"   2 $R "$(bcmd "cat $tmp/big.txt 2>/dev/null")"
 check "bash: cat big > file passes"        0 $R "$(bcmd "cat $tmp/big.txt > $tmp/out.txt")"
@@ -372,6 +372,59 @@ g_budgetb3() {
   bdc "union: two-space path via bash"         2 "$br" b27b "" "" "sed -n '1,300p' '$sp'; sed -n '301,360p' '$sp'"
   rm -rf "$br" "$br2"
 }
+g_budgetb4() {
+  bb_setup
+  # review fixes: multi-line commands, heredocs, tail/head option forms, &>, sed Nq, interval merge
+  local nl=$'\n'
+  rng() {  # name, session, command, expected "start end" list separated by ';'
+    bdc "$1 passes" 0 "$br" "$2" "" "" "$3"
+    local want="$4" r
+    local IFS=';'; for r in $want; do ok "$1 delivers $r" "$(has "reads-$2" "main $f $r"; echo $?)"; done
+  }
+  bdc "split: heredoc body is not a command"       0 "$br" c1 "" "" "git commit -F - <<EOF${nl}cat $f${nl}EOF"
+  bdc "split: <<-'EOF' heredoc body skipped"       0 "$br" c1b "" "" "git commit -F - <<-'EOF'${nl}cat $f${nl}EOF"
+  bdc "split: <<\"EOF\" heredoc body skipped"      0 "$br" c1c "" "" "git commit -F - <<\"EOF\"${nl}cat $f${nl}EOF"
+  bdc "split: <<-EOF with tab-indented end"        0 "$br" c1d "" "" "git commit -F - <<-EOF${nl}cat $f${nl}	EOF"
+  bdc "split: command after a heredoc still judged" 2 "$br" c1e "" "" "cat <<EOF${nl}x${nl}EOF${nl}cat $f"
+  bdc "split: quote spans lines"                   0 "$br" c2 "" "" "git commit -m \"title${nl}cat $f${nl}\""
+  bdc "split: newline outside quotes splits"       2 "$br" c2b "" "" "ls${nl}cat $f"
+  bdc "split: quote closed on line 2, then ; splits" 2 "$br" c2c "" "" "echo \"a${nl}b\"; cat $f"
+  bdc "split: unterminated quote fails open"       0 "$br" c2d "" "" "echo \"abc${nl}cat $f"
+  bdc "split: unterminated heredoc fails open"     0 "$br" c2e "" "" "cat <<EOF${nl}cat $f"
+  bdc "tail -f passes"                             0 "$br" c3 "" "" "tail -f $f"
+  bdc "tail -F passes"                             0 "$br" c3 "" "" "tail -F $f"
+  bdc "tail --follow passes"                       0 "$br" c3 "" "" "tail --follow $f"
+  bdc "tail -f -n 20 passes"                       0 "$br" c3 "" "" "tail -f -n 20 $f"
+  ok "tail follow forms record nothing" "$([ ! -e "$st/reads-c3" ]; echo $?)"
+  rng "tail --lines=20"                            c4 "tail --lines=20 $f" "381 400"
+  rng "tail --lines 20"                            c4b "tail --lines 20 $f" "381 400"
+  rng "head --lines=5"                             c4c "head --lines=5 $f" "1 5"
+  bdc "head --bytes=100 passes"                    0 "$br" c4d "" "" "head --bytes=100 $f"
+  bdc "head --bytes 100 passes"                    0 "$br" c4d "" "" "head --bytes 100 $f"
+  bdc "tail --bytes=100 passes"                    0 "$br" c4d "" "" "tail --bytes=100 $f"
+  ok "bytes forms record nothing" "$([ ! -e "$st/reads-c4d" ]; echo $?)"
+  rng "head without a count is 10 lines"           c5 "head $f" "1 10"
+  rng "tail without a count is the last 10"        c5b "tail $f" "391 400"
+  bdc "cat big &> out.log passes"                  0 "$br" c6 "" "" "cat $f &> $br/out.log"
+  bdc "cat big >& out.log passes"                  0 "$br" c6 "" "" "cat $f >& $br/out.log"
+  bdc "cat big & still splits"                     2 "$br" c6b "" "" "cat $f & true"
+  rng "sed 5q is lines 1-5"                        c7 "sed 5q $f" "1 5"
+  rng "sed -e 5q is lines 1-5"                     c7b "sed -e 5q $f" "1 5"
+  bdc "sed 400q is a whole-file read"              2 "$br" c7c "" "" "sed 400q $f"
+  bdc "sed with another command and 5q is whole"   2 "$br" c7d "" "" "sed -e 's/a/b/' -e 5q $f"
+  # union merges intervals: a huge ledger entry costs nothing
+  mkdir -p "$st"; echo "main $f 1 100000000" > "$st/reads-c8"
+  local t0 t1; t0=$(date +%s)
+  rdo "$br" c8 301 60 "$f"
+  t1=$(date +%s)
+  n=$((n+1)); if [ "$rc" = 2 ]; then echo "ok   union: read after a 1-100000000 entry decided"; else echo "FAIL union: huge entry (got $rc)"; fail=1; fi
+  mcheck "union: huge entry reported as seen 1-100000000" "$err" "seen 1-100000000" "loop"
+  ok "union: huge entry decides in under 3 seconds" "$([ $(( t1 - t0 )) -lt 3 ]; echo $?)"
+  printf 'main %s 101 200\nmain %s 1 60\nmain %s 50 100\nmain %s 300 310\n' "$f" "$f" "$f" "$f" > "$st/reads-c9"
+  rdo "$br" c9 150 251 "$f"
+  mcheck "union: overlapping and adjacent entries merge" "$err" "seen 1-200,300-310" "loop"
+  rm -rf "$br" "$br2"
+}
 g_commit1() {
   tmp="$(mktemp -d)"; git -C "$tmp" init -q; printf 'line %d\n' $(seq 1 400) > "$tmp/big.txt"; echo hi > "$tmp/small.txt"
 # commit gate, in a throwaway repo with its own harness.toml
@@ -650,7 +703,7 @@ run_group() {  # name: run the group in a subshell, output and counters to files
   ( n=0; fail=0; "$1"; echo "$n $fail" > "$OUT/$1.rc" ) > "$OUT/$1.out" 2>&1 &
 }
 OUT="$TROOT/out"; mkdir "$OUT"
-groups="g_read1 g_read2 g_failopen g_budget g_budgetb1 g_budgetb2 g_budgetb3 g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
+groups="g_read1 g_read2 g_failopen g_budget g_budgetb1 g_budgetb2 g_budgetb3 g_budgetb4 g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
 groups="$groups g_agents"   # coordinator-hands-off group, own line
 for g in $groups; do run_group $g; done
 wait
