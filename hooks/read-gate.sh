@@ -37,6 +37,8 @@ lines_of() {  # relative paths resolve against the payload cwd, moved by any cd 
 
 deny() {  # $1 file  $2 line count
   local n
+  # a gate that cannot name the file or the count must not deny: it saves tokens, so it fails open
+  if [ -z "$1" ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then echo "  -> gate error, allowed" >> "$log"; exit 0; fi
   n=$(( $(grep -c "^$1\$" "$counter" 2>/dev/null) + 1 ))
   echo "$1" >> "$counter"
   if [ "$n" -gt 3 ]; then echo "  -> loop guard, allowed" >> "$log"; exit 0; fi

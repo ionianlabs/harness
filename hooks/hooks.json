@@ -4,7 +4,7 @@
       {
         "matcher": "Read|Bash",
         "hooks": [
-          { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/read-gate.sh" }
+          { "type": "command", "command": "bash -n \"${CLAUDE_PLUGIN_ROOT}/hooks/read-gate.sh\" 2>/dev/null || exit 0; bash \"${CLAUDE_PLUGIN_ROOT}/hooks/read-gate.sh\"" }
         ]
       },
       {
