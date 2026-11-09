@@ -7,34 +7,57 @@
 # Mechanism inspired by Spotify's shunt plugin; written from the idea, not the code.
 
 LIMIT="${HARNESS_READ_LIMIT:-350}"
-payload="$(cat)"
-tool="$(jq -r '.tool_name // ""' <<<"$payload")"
-agent="$(jq -r '.agent_type // ""' <<<"$payload")"
-session="$(jq -r '.session_id // "nosession"' <<<"$payload")"
-akey="$(jq -r '.agent_id // ""' <<<"$payload")"; [ -n "$akey" ] || akey=main   # budgets and denials are kept per agent context
+# Process starts are what is slow on a managed machine, so this gate keeps them few: the payload
+# is read by a builtin and parsed by one jq, git is asked once, the config is read only where its
+# value is needed, and bash builtins do what tr, sed and wc would.
+IFS= read -r -d '' payload
+tool=""; agent=""; session=""; akey=""; base=""; f=""; off=""; lim=""; cmd=""; summary=""
+# @sh quotes every value, so its output is safe to eval whatever the payload holds
+eval "$(jq -r '@sh "tool=\(.tool_name // "") agent=\(.agent_type // "") session=\(.session_id // "nosession") akey=\(.agent_id // "") base=\(.cwd // "") f=\(.tool_input.file_path // "") off=\(.tool_input.offset // "") lim=\(.tool_input.limit // "") cmd=\(.tool_input.command // "") summary=\(.tool_input | (.file_path // .command // "") + (if .offset or .limit then " [offset=\(.offset // "-") limit=\(.limit // "-")]" else "" end))"' <<<"$payload" 2>/dev/null)"
+[ -n "$akey" ] || akey=main   # budgets and denials are kept per agent context
 
 # plugin agents arrive as ionian-harness:<name>; only our own prefix is stripped
 case "${agent#ionian-harness:}" in reader|spec-paraphrase|spec-critic|spec-readiness) exit 0 ;; esac
 
-state_dir="$(git rev-parse --git-dir 2>/dev/null || echo /tmp)/harness"
-mkdir -p "$state_dir"
+# one git call: the git dir of the directory the hook runs in, and its work tree
+gitout="$(git rev-parse --git-dir --show-toplevel 2>/dev/null)"
+if [[ "$gitout" == *$'\n'* ]]; then gitdir="${gitout%%$'\n'*}"; top0="${gitout#*$'\n'}"; else gitdir="$gitout"; top0=""; fi
+state_dir="${gitdir:-/tmp}/harness"
+[ -d "$state_dir" ] || mkdir -p "$state_dir"
 counter="$state_dir/denials-$session"
 # audit line per call: time, agent, tool, input summary, decision filled in by deny/exit
 log="$state_dir/gate.log"
-summary="$(jq -r '.tool_input | (.file_path // .command // "") + (if .offset or .limit then " [offset=\(.offset // "-") limit=\(.limit // "-")]" else "" end)' <<<"$payload")"
-echo "$(date +%H:%M:%S) agent=${agent:-main} tool=$tool session=$session $summary" >> "$log"
+printf -v ts '%(%H:%M:%S)T' -1 2>/dev/null || ts="$(date +%H:%M:%S)"   # the builtin needs bash 4.2, older bash asks date
+echo "$ts agent=${agent:-main} tool=$tool session=$session $summary" >> "$log"
 
-base="$(jq -r '.cwd // empty' <<<"$payload")"; [ -n "$base" ] || base="$PWD"
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-repo="$(git -C "$base" rev-parse --show-toplevel 2>/dev/null || echo "$base")"
-# the ask command is named only when the config allows it and claude is installed
-use_ask=1
-[ "$(bash "$here/lib/config.sh" "$repo" read.ask true 2>/dev/null)" = "false" ] && use_ask=0
-command -v claude >/dev/null 2>&1 || use_ask=0
-lines_of() {  # relative paths resolve against the payload cwd, moved by any cd in the command
-  local f="$1"; case "$f" in /*) ;; *) f="$base/$f" ;; esac
-  if [ -f "$f" ]; then wc -l < "$f" | tr -d ' '; else echo 0; fi
+[ -n "$base" ] || base="$PWD"
+base0="$base"
+here=""; repo=""
+need_repo() {  # the plugin dir and the work tree of the payload cwd, found only where the config is read
+  [ -z "$repo" ] || return 0
+  if [ -n "$top0" ] && [ "$base0" = "$PWD" ]; then repo="$top0"
+  else repo="$(git -C "$base0" rev-parse --show-toplevel 2>/dev/null || echo "$base0")"; fi
+  local d="${BASH_SOURCE[0]%/*}"; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.
+  here="$(cd "$d/.." && pwd)"
 }
+file_budget() {  # sets budget from the config; 350 when absent or not a number
+  need_repo
+  budget="$(bash "$here/lib/config.sh" "$repo" read.file_budget 350 2>/dev/null)"
+  [[ "$budget" =~ ^[0-9]+$ ]] || budget=350
+}
+lines_of() {  # sets LN; relative paths resolve against the payload cwd, moved by any cd in the command
+  local p="$1" c=0 l; case "$p" in /*) ;; *) p="$base/$p" ;; esac
+  LN=0; [ -f "$p" ] || return 0
+  # a file of at most LIMIT lines is counted by the shell; only a larger one starts wc
+  while IFS= read -r l; do c=$((c+1)); [ "$c" -gt "$LIMIT" ] && break; done <"$p" 2>/dev/null
+  if [ "$c" -gt "$LIMIT" ]; then LN="$(wc -l < "$p" 2>/dev/null)"; LN="${LN// /}"; else LN="$c"; fi
+}
+is_image() {  # rendered by Read as an image or document, not loaded as lines
+  local r=1; shopt -s nocasematch
+  case "${1##*.}" in png|jpg|jpeg|gif|webp|pdf) r=0 ;; esac
+  shopt -u nocasematch; return $r
+}
+
 
 reads="$state_dir/reads-$session"
 rec_start=""; rec_end=""; rec_path=""   # the range a read delivers if it is let through
@@ -74,7 +97,9 @@ deny() {  # $1 file  $2 line count  $3 lines seen so far and $4 budget, for a bu
   local n
   # a gate that cannot name the file or the count must not deny: it saves tokens, so it fails open
   if [ -z "$1" ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then echo "  -> gate error, allowed" >> "$log"; exit 0; fi
-  n=$(( $(grep -cxF -- "$akey $1" "$counter" 2>/dev/null) + 1 ))
+  n=0; local l
+  if [ -f "$counter" ]; then while IFS= read -r l; do [ "$l" = "$akey $1" ] && n=$((n+1)); done <"$counter"; fi
+  n=$((n+1))
   echo "$akey $1" >> "$counter"
   if [ "$n" -gt 3 ]; then record; echo "  -> loop guard, allowed" >> "$log"; exit 0; fi
   echo "  -> DENIED ($n/3)" >> "$log"
@@ -83,6 +108,11 @@ deny() {  # $1 file  $2 line count  $3 lines seen so far and $4 budget, for a bu
   else
     echo "Read gate: $1 has $2 lines (limit $LIMIT). Do not load it whole." >&2
   fi
+  # the ask command is named only when the config allows it and claude is installed
+  need_repo
+  use_ask=1
+  [ "$(bash "$here/lib/config.sh" "$repo" read.ask true 2>/dev/null)" = "false" ] && use_ask=0
+  command -v claude >/dev/null 2>&1 || use_ask=0
   if [ "$use_ask" = 1 ]; then
     cat >&2 <<MSG
 Get the lines you need with one precise question about this file, answered by a cheap model:
@@ -100,12 +130,8 @@ MSG
 
 case "$tool" in
   Read)
-    f="$(jq -r '.tool_input.file_path // ""' <<<"$payload")"
-    off="$(jq -r '.tool_input.offset // empty' <<<"$payload")"
-    lim="$(jq -r '.tool_input.limit // empty' <<<"$payload")"
-    # images and PDFs are rendered by Read, not loaded as lines
-    case "$(tr '[:upper:]' '[:lower:]' <<<"${f##*.}")" in png|jpg|jpeg|gif|webp|pdf) exit 0 ;; esac
-    n="$(lines_of "$f")"
+    is_image "$f" && exit 0   # images and PDFs are rendered by Read, not loaded as lines
+    lines_of "$f"; n="$LN"
     [ "$n" -gt "$LIMIT" ] || exit 0   # small or missing files are not counted
     if ! [[ "${off:-1}" =~ ^[0-9]+$ && "${lim:-1}" =~ ^[0-9]+$ ]]; then echo "  -> parse error, allowed" >> "$log"; exit 0; fi
     start="${off:-1}"; [ "$start" -ge 1 ] || start=1
@@ -116,28 +142,40 @@ case "$tool" in
     rec_start="$start"; rec_end="$end"
     # a read that covers the whole file is a whole-file read, however it is spelled
     if [ "$start" -le 1 ] && [ "$end" -ge "$n" ]; then deny "$f" "$n"; fi
-    budget="$(bash "$here/lib/config.sh" "$repo" read.file_budget 350 2>/dev/null)"
-    [[ "$budget" =~ ^[0-9]+$ ]] || budget=350
+    file_budget
     if ! res="$(union "$start" "$end")"; then echo "  -> state error, allowed" >> "$log"; exit 0; fi
     if [ "${res%%$'\t'*}" -gt "$budget" ]; then deny "$f" "$n" "${res#*$'\t'}" "$budget"; fi
     record
     ;;
   Bash)
-    cmd="$(jq -r '.tool_input.command // ""' <<<"$payload")"
-    # redirects to /dev/null or another fd hide nothing; a redirect to a file still passes
-    cmd="$(sed -E 's/[0-9&]*>>?[[:space:]]*\/dev\/null//g; s/[0-9]>&[0-9]//g' <<<"$cmd")"
-    is_image() { case "$(tr '[:upper:]' '[:lower:]' <<<"${1##*.}")" in png|jpg|jpeg|gif|webp|pdf) return 0 ;; esac; return 1; }
-    abs() { case "$1" in /*) echo "$1" ;; *) echo "$base/$1" ;; esac; }
+    # redirects to /dev/null or another fd hide nothing; a redirect to a file still passes.
+    # Removed in one left-to-right pass per pattern, as sed s///g did; [[:space:]] is spelled out
+    # because a bash regex, unlike sed, would also match across a newline.
+    strip_matches() {  # $1 regex: removes every match from cmd, only where $2 occurs
+      case "$cmd" in *"$2"*) ;; *) return 0 ;; esac
+      local rest="$cmd" out="" m
+      while [[ "$rest" =~ $1 ]]; do m="${BASH_REMATCH[0]}"; out="$out${rest%%"$m"*}"; rest="${rest#*"$m"}"; done
+      cmd="$out$rest"
+    }
+    sp=$' \t\r\v\f'
+    strip_matches "[0-9&]*>>?[$sp]*/dev/null" "/dev/null"
+    strip_matches "[0-9]>&[0-9]" ">&"
+    cmd="${cmd%"${cmd##*[!$'\n']}"}"   # the old $(...) dropped trailing newlines
+    # A command that holds none of the words this gate judges (cat, less, more, head, tail, sed,
+    # awk) needs no splitting: only those can be the command word of a segment. Quotes and
+    # backslashes are dropped first because xargs below unquotes a command word (c"a"t is cat).
+    bare="${cmd//\'/}"; bare="${bare//\"/}"; bare="${bare//\\/}"
+    case "$bare" in *cat*|*less*|*more*|*head*|*tail*|*sed*|*awk*) ;; *) exit 0 ;; esac
     whole_file() {  # $1 file: denied when large; never recorded
       is_image "$1" && return 0
-      rec_start=""; local n; n="$(lines_of "$1")"
-      [ "$n" -gt "$LIMIT" ] && deny "$1" "$n"
+      rec_start=""; lines_of "$1"
+      [ "$LN" -gt "$LIMIT" ] && deny "$1" "$LN"
       return 0
     }
     range_of() {  # $1 file, $2 mode (abs, head or tail), $3 and $4 the numbers; counts the lines a read delivers
       local f="$1" n s e budget res
       is_image "$f" && return 0
-      n="$(lines_of "$f")"; [ "$n" -gt "$LIMIT" ] || return 0   # small or missing files are not counted
+      lines_of "$f"; n="$LN"; [ "$n" -gt "$LIMIT" ] || return 0   # small or missing files are not counted
       case "$2" in
         head) s=1; e="$3" ;;
         tail) s=$(( n - $3 + 1 )); e="$n" ;;
@@ -147,10 +185,9 @@ case "$tool" in
       [ "$e" -ge "$s" ] || e="$s"   # sed prints line A for a range that runs backwards
       [ "$e" -le "$n" ] || e="$n"
       [ "$s" -le "$e" ] || return 0   # nothing delivered
-      rec_path="$(abs "$f")"; rec_start="$s"; rec_end="$e"
+      case "$f" in /*) rec_path="$f" ;; *) rec_path="$base/$f" ;; esac; rec_start="$s"; rec_end="$e"
       if [ "$s" -le 1 ] && [ "$e" -ge "$n" ]; then deny "$f" "$n"; fi
-      budget="$(bash "$here/lib/config.sh" "$repo" read.file_budget 350 2>/dev/null)"
-      [[ "$budget" =~ ^[0-9]+$ ]] || budget=350
+      file_budget
       if ! res="$(union "$s" "$e")"; then echo "  -> state error, allowed" >> "$log"; exit 0; fi
       if [ "${res%%$'\t'*}" -gt "$budget" ]; then deny "$f" "$n" "${res#*$'\t'}" "$budget"; fi
       pending="$pending$akey $rec_path $s $e"$'\n'; rec_start=""
@@ -253,6 +290,7 @@ case "$tool" in
           if [ "$inplace" = 1 ] || [ "$skip" = 1 ]; then continue; fi
           if [ "${#scripts[@]}" = 0 ] || [ "${#files[@]}" = 0 ]; then continue; fi
           ranges=(); bad=""; others=0; quit_at=""
+          sl=""; for sx in "${scripts[@]}"; do sl="$sl$sx"$'\n'; done; sl="${sl//;/$'\n'}"   # one command per line
           while IFS= read -r one; do
             [ -n "${one//[[:space:]]/}" ] || continue
             if [[ "$one" =~ $sed_print ]]; then
@@ -262,7 +300,7 @@ case "$tool" in
               if [ -z "$quit_at" ] || [ "${BASH_REMATCH[1]}" -lt "$quit_at" ]; then quit_at="${BASH_REMATCH[1]}"; fi
             elif [[ "$one" == */* ]]; then bad=regex; others=1
             else bad=parse; others=1; fi
-          done < <(printf '%s\n' "${scripts[@]}" | tr ';' '\n')
+          done <<<"$sl"
           if [ "$quiet" = 0 ]; then   # prints every line, up to a quit command if that is all there is
             if [ "$others" = 0 ] && [ -n "$quit_at" ] && [ "$quit_at" -ge 1 ]; then ranges=("1 $quit_at")
             else for x in "${files[@]}"; do whole_file "$x"; done; continue; fi

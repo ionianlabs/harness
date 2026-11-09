@@ -109,10 +109,11 @@ m="$(dmsg f12d "agent-1" "general-purpose" "$askrepo" "$PATH")"
 mcheck "read: ask = false, subagent gets fallback"         "$m" "Grep (or grep -n)" "ask.sh"
 n=$((n+1)); if grep -q "agent=main tool=Read session=f11a " "$tmp/.git/harness/gate.log"; then echo "ok   read: log line carries session"; else echo "FAIL read: log line carries session"; fail=1; fi
 # read: documented gap: outside a git repo the denial counter lives in /tmp/harness (shared by every non-git cwd); kept because a per-user path would need a decision on cleanup
-ng="$(mktemp -d)"; rm -f /tmp/harness/denials-gapsess
-(cd "$ng" && echo "{\"tool_name\":\"Read\",\"session_id\":\"gapsess\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash "$R" >/dev/null 2>&1)
-if [ -f /tmp/harness/denials-gapsess ]; then echo "ok   read: documented gap: state outside git lives in /tmp/harness"; else echo "FAIL read: documented gap: state outside git lives in /tmp/harness"; fail=1; fi
+ng="$(mktemp -d)"; gapsess="gapsess-$$-$RANDOM"   # a session id of its own: two suites at once never meet in /tmp/harness
+(cd "$ng" && echo "{\"tool_name\":\"Read\",\"session_id\":\"$gapsess\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash "$R" >/dev/null 2>&1)
+if [ -f "/tmp/harness/denials-$gapsess" ]; then echo "ok   read: documented gap: state outside git lives in /tmp/harness"; else echo "FAIL read: documented gap: state outside git lives in /tmp/harness"; fail=1; fi
 n=$((n+1)); rm -rf "$ng"
+rm -f "/tmp/harness/denials-$gapsess" "/tmp/harness/reads-$gapsess"   # only this test's own files; the directory and gate.log are shared, so they stay
 for i in 1 2 3; do echo "{\"tool_name\":\"Read\",\"session_id\":\"t3\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | (cd "$SBX" && bash $R) >/dev/null 2>&1; done
 check "read: loop guard, 4th passes"       0 $R "{\"tool_name\":\"Read\",\"session_id\":\"t3\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}"
 }
@@ -699,11 +700,48 @@ g_agents() {  # coordinator-hands-off F1, F4, F5: agent files and skill texts
   has_all "skills/spec-review (F5)" skills/spec-review/SKILL.md 'ionian-harness:drafter' 'fix list' 'Status: reviewed' 'Status: approved' 'verbatim' 'never into a reviewer dispatch' 'If the drafter cannot be dispatched, tell the user and stop.' 'findings 4, fixed 3, rejected 1'
   ! grep -qP '\x{2013}|\x{2014}' agents/coder.md agents/reviewer.md agents/drafter.md skills/*/SKILL.md 2>/dev/null; ok "agents and skills: no em or en dashes" $?
 }
+g_fast() {  # fast paths of the read gate: commands it does not judge, awkward payloads, non-JSON
+  local fr p nasty
+  fr="$(mktemp -d "$fresh/f.XXXXXX")"; git -C "$fr" init -q
+  rg() { (cd "$fr" && bash "$R") >/dev/null 2>&1; }   # the hook runs in $fr, so anything it ran by mistake would leave a file there
+  p="$(jq -nc --arg d "$fr" '{tool_name:"Bash",session_id:"fast1",cwd:$d,tool_input:{command:"git status && ls -la"}}')"
+  echo "$p" | rg; ok "read: command with no judged word exits 0" $?
+  grep -q 'agent=main tool=Bash session=fast1 git status && ls -la$' "$fr/.git/harness/gate.log"; ok "read: command with no judged word still writes its gate.log line" $?
+  # newlines, double and single quotes, $( ), backticks: parsed as data, never run
+  nasty="$(cat <<'EOF'
+echo "a b" 'it'"'"'s' $(touch ran1) `touch ran2`
+ls
+EOF
+)"
+  p="$(jq -nc --arg d "$fr" --arg c "$nasty" '{tool_name:"Bash",session_id:"fast2",cwd:$d,tool_input:{command:$c}}')"
+  echo "$p" | rg; ok "read: awkward command text parses and exits 0" $?
+  [ ! -e "$fr/ran1" ] && [ ! -e "$fr/ran2" ]; ok "read: awkward command text is never executed" $?
+  grep -q 'session=fast2 echo "a b" ' "$fr/.git/harness/gate.log"; ok "read: awkward command text is logged" $?
+  p="$(jq -nc --arg d "$fr" --arg c "$nasty"$'\ncat '"$tmp/big.txt" '{tool_name:"Bash",session_id:"fast3",cwd:$d,tool_input:{command:$c}}')"
+  echo "$p" | rg; [ $? = 2 ] && [ ! -e "$fr/ran1" ]; ok "read: judged word beside awkward text still denies, nothing runs" $?
+  # a judged word that only appears once quotes or a /dev/null redirect are removed is still judged
+  local k=0 c
+  for c in "c''at $tmp/big.txt" "\"ca\"t $tmp/big.txt" "ca\\t $tmp/big.txt" "ca>/dev/nullt $tmp/big.txt" "ca2>&1t $tmp/big.txt"; do
+    k=$((k+1))   # a session of its own each, so the loop guard of three never lets one through
+    p="$(jq -nc --arg d "$fr" --arg c "$c" --arg s "fast4-$k" '{tool_name:"Bash",session_id:$s,cwd:$d,tool_input:{command:$c}}')"
+    echo "$p" | rg; [ $? = 2 ]; ok "read: disguised cat denied: $c" $?
+  done
+  # commit gate early exit: no `commit` in the payload leaves no trace; a JSON escape that spells it is still gated
+  local cr; cr="$(repo_with '')"
+  echo "$(bash_cmd "git status" "$cr")" | (cd "$SBX" && bash "$C") >/dev/null 2>&1; ok "commit: command without commit exits 0" $?
+  [ ! -e "$cr/.git/harness/gate.log" ]; ok "commit: command without commit writes nothing" $?
+  # the command is "git commit --no-verify" with the c of commit written as a JSON unicode escape (backslash, u, 0063);
+  # printf, not echo: the macOS bash 3.2 echo would turn the escape into c before the hook sees it
+  local bs=$'\x5c'
+  printf '%s\n' '{"tool_name":"Bash","cwd":"'"$cr"'","tool_input":{"command":"git '"${bs}"'u0063ommit --no-verify -m x"}}' | (cd "$SBX" && bash "$C") >/dev/null 2>&1; [ $? = 2 ]; ok "commit: commit spelled with a unicode escape still gated" $?
+  check "commit: plain commit --no-verify still denied"       2 $C '{"tool_name":"Bash","cwd":"'"$cr"'","tool_input":{"command":"git commit --no-verify -m x"}}'
+  echo 'this is not json {' | rg; ok "read: non-JSON payload fails open" $?
+}
 run_group() {  # name: run the group in a subshell, output and counters to files
   ( n=0; fail=0; "$1"; echo "$n $fail" > "$OUT/$1.rc" ) > "$OUT/$1.out" 2>&1 &
 }
 OUT="$TROOT/out"; mkdir "$OUT"
-groups="g_read1 g_read2 g_failopen g_budget g_budgetb1 g_budgetb2 g_budgetb3 g_budgetb4 g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
+groups="g_read1 g_read2 g_failopen g_budget g_budgetb1 g_budgetb2 g_budgetb3 g_budgetb4 g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3 g_fast"
 groups="$groups g_agents"   # coordinator-hands-off group, own line
 for g in $groups; do run_group $g; done
 wait
@@ -713,5 +751,5 @@ for g in $groups; do
   if [ -s "$OUT/$g.rc" ]; then read -r gn gf < "$OUT/$g.rc"; total=$((total+gn)); [ "$gf" = 0 ] || fail=1
   else echo "FAIL group $g did not finish"; fail=1; fi
 done
-rm -rf "$TROOT" /tmp/harness
+rm -rf "$TROOT"
 echo "$total checks"; exit $fail

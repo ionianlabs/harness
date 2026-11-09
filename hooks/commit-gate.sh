@@ -5,7 +5,14 @@
 # the exit code is the real runner's, nothing is piped into grep.
 
 # This gate protects something, so it fails closed: if it cannot do its job, it denies.
-payload="$(cat)"
+payload="$(</dev/stdin)"   # a builtin read, not a cat process
+# Early exit, derived from the matching below: every path that can deny needs the text `commit` in
+# the command (commit_re and tree_re both contain it, and strip_heredocs only removes text), and
+# the fallbacks for a missing jq or invalid JSON grep the payload for `git[^"]*commit`. The command
+# is the payload's JSON-decoded string, and decoding can only produce a letter that is not in the
+# payload through a \uXXXX escape. So a payload with neither `commit` nor `\u` in it can never
+# reach a denial; anything else goes on to the full gate.
+case "$payload" in *commit*|*'\u'*) ;; *) exit 0 ;; esac
 if ! command -v jq >/dev/null 2>&1; then
   # cannot parse the payload; only deny if this looks like a commit at all
   grep -q 'git[^"]*commit' <<<"$payload" && { echo "Commit gate: jq is not installed, cannot verify this commit. Install jq (brew install jq)." >&2; exit 2; }
