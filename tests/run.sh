@@ -205,5 +205,67 @@ if command -v gitleaks >/dev/null 2>&1; then
 else
   echo "skip secret: live gitleaks checks (gitleaks not installed)"
 fi
+# ask.sh: fake claude first on PATH, throwaway git repo so gate.log never lands in this repo
+A="$PWD/lib/ask.sh"; ar="$(mktemp -d)"; git -C "$ar" init -q; fk="$ar/fake"; mkdir "$fk"
+printf 'line %d\n' $(seq 1 400) > "$ar/big.txt"; printf 'alpha\nbeta\n' > "$ar/two.txt"
+fakecl() { printf '#!/bin/bash\n%s\n' "$1" > "$fk/claude"; chmod +x "$fk/claude"; }
+askrun() {  # args to ask.sh; sets aout, aerr, arc; runs inside the throwaway repo
+  aout="$(cd "$ar" && PATH="$fk:$PATH" bash "$A" "$@" 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
+}
+ok() {  # name, condition result (0 = pass)
+  n=$((n+1)); if [ "$2" = 0 ]; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi
+}
+fakecl 'cat'
+askrun "where is line 200?" big.txt
+[ "$arc" = 0 ] && [[ "$aout" == *"where is line 200?"* ]] && [[ "$aout" == *"<file path=\"$ar/big.txt\">"* ]] \
+  && printf '%s\n' "$aout" | grep -qx "$(printf '200\tline 200')" && [ "$(printf '%s\n' "$aout" | grep -c "^[0-9]*	line ")" = 400 ]; ok "ask: numbered lines, tag with absolute path, question (F1.1)" $?
+askrun "q" big.txt two.txt
+[ "$arc" = 0 ] && [ "$(printf '%s\n' "$aout" | grep -c '^<file path=')" = 2 ] \
+  && [ "$(printf '%s\n' "$aout" | grep '^<file path=' | head -1)" = "<file path=\"$ar/big.txt\">" ] \
+  && [ "$(printf '%s\n' "$aout" | grep '^<file path=' | tail -1)" = "<file path=\"$ar/two.txt\">" ]; ok "ask: two files in argument order (F1.2)" $?
+askrun;                  [ "$arc" = 64 ] && [ "$(printf '%s\n' "$aerr" | wc -l | tr -d ' ')" = 1 ] && [[ "$aerr" == *usage* ]]; ok "ask: no arguments exits 64 with usage (F1.3)" $?
+askrun "q";              [ "$arc" = 64 ]; ok "ask: question without file exits 64 (F1.3)" $?
+askrun "" big.txt;       [ "$arc" = 64 ]; ok "ask: empty question exits 64 (F1.3)" $?
+askrun "q" missing.txt;  [ "$arc" = 65 ] && [[ "$aerr" == *missing.txt* ]]; ok "ask: missing file exits 65 naming it (F1.4)" $?
+mkdir "$ar/adir"
+askrun "q" adir;         [ "$arc" = 65 ]; ok "ask: directory exits 65 (F1.4)" $?
+printf 'a\0b\n' > "$ar/nul.dat"; echo x > "$ar/shot.png"
+fakecl 'touch "'"$ar"'/called"'
+askrun "q" two.txt nul.dat; [ "$arc" = 66 ] && [[ "$aerr" == *nul.dat* ]] && [ ! -e "$ar/called" ]; ok "ask: NUL byte exits 66, no claude call (F1.5)" $?
+askrun "q" shot.png two.txt; [ "$arc" = 66 ] && [[ "$aerr" == *shot.png* ]] && [ ! -e "$ar/called" ]; ok "ask: image extension exits 66, no claude call (F1.5)" $?
+askrun "q" nul.dat missing.txt; [ "$arc" = 66 ]; ok "ask: first failing file in order decides (F1.5)" $?
+fakecl 'cat'
+aout="$(cd "$ar" && HARNESS_ASK_MAX_BYTES=1000 PATH="$fk:$PATH" bash "$A" "q" big.txt 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
+[ "$arc" = 67 ] && [[ "$aerr" == *1000* ]] && [[ "$aerr" == *Grep* ]]; ok "ask: payload over the cap exits 67 naming cap and Grep (F1.6)" $?
+aout="$(cd "$ar" && PATH="/usr/bin:/bin" bash "$A" "q" big.txt 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
+[ "$arc" = 68 ] && [[ "$aerr" == *claude* ]]; ok "ask: claude not on PATH exits 68 (F1.7)" $?
+fakecl 'echo "API error"; exit 1'
+askrun "q" big.txt; [ "$arc" = 69 ] && [ -z "$aout" ] && [ "$(printf '%s\n' "$aerr" | wc -l | tr -d ' ')" = 1 ]; ok "ask: failing call exits 69, stdout empty, one stderr line (F1.8)" $?
+fakecl 'echo $$ > "'"$ar"'/pid"; sleep 31 & echo $! > "'"$ar"'/cpid"; sleep 30'
+t0=$SECONDS
+aout="$(cd "$ar" && HARNESS_ASK_TIMEOUT=1 PATH="$fk:$PATH" bash "$A" "q" big.txt 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
+dt=$((SECONDS-t0)); sleep 0.3
+alive=0; for f in pid cpid; do kill -0 "$(cat "$ar/$f")" 2>/dev/null && alive=1; done
+[ "$arc" = 70 ] && [[ "$aerr" == *timed\ out* ]] && [ "$dt" -le 3 ] && [ "$alive" = 0 ] && [ -z "$aout" ]; ok "ask: timeout exits 70 within 3 s, claude and child killed (F1.9)" $?
+rm -f "$ar/pid" "$ar/cpid"
+fakecl 'cat >/dev/null; echo ok'
+rm -rf "$ar/.git/harness"
+unset CLAUDE_SESSION_ID; askrun "q" big.txt two.txt
+ll="$(tail -1 "$ar/.git/harness/gate.log")"
+[ "$arc" = 0 ] && [[ "$ll" =~ ^[0-9:]{8}\ agent=unknown\ tool=ask\ session=unknown\ files=2\ bytes=[0-9]+\ exit=0\ seconds=[0-9]+$ ]]; ok "ask: gate.log line, session unknown without env (F1.10)" $?
+aout="$(cd "$ar" && CLAUDE_SESSION_ID=sess-9 PATH="$fk:$PATH" bash "$A" "q" missing.txt 2>/dev/null)"
+ll="$(tail -1 "$ar/.git/harness/gate.log")"
+[[ "$ll" == *"tool=ask session=sess-9 files=1 bytes=0 exit=65 "* ]]; ok "ask: failing run is logged with session id and exit (F1.10)" $?
+fakecl 'printf "%s\n" "$@" > "'"$ar"'/argv"; env > "'"$ar"'/env"; pwd > "'"$ar"'/pwd"; ls -A | wc -l > "'"$ar"'/cwdfiles"; cat >/dev/null; echo ok'
+askrun "q" two.txt
+av="$ar/argv"; has() { grep -qxF -- "$1" "$av"; }
+pair() { awk -v a="$1" -v b="$2" 'prev==a && $0==b {f=1} {prev=$0} END{exit !f}' "$av"; }
+[ "$arc" = 0 ] && has -p && pair --model haiku && pair --tools "" && pair --setting-sources "" && has --no-session-persistence \
+  && has --strict-mcp-config && has --disable-slash-commands && has --system-prompt && pair --output-format text; ok "ask: headless call flags (F1.14)" $?
+HARNESS_ASK_MODEL=sonnet askrun "q" two.txt; pair --model sonnet; ok "ask: HARNESS_ASK_MODEL overrides the model (F1.14)" $?
+grep -qx 'CLAUDE_CODE_DISABLE_AUTO_MEMORY=1' "$ar/env" && grep -qx 'CLAUDE_CODE_DISABLE_CLAUDE_MDS=1' "$ar/env"; ok "ask: env disables auto memory and CLAUDE.md files (F1.14)" $?
+cwd="$(cat "$ar/pwd")"; [ "$(tr -d ' ' < "$ar/cwdfiles")" = 0 ] && [ ! -e "$cwd" ] && [ "$cwd" != "$ar" ]; ok "ask: runs from an empty temp dir removed on exit (F1.14)" $?
+grep -qF 'L<start>-L<end>' "$av" && grep -qF 'at most 25 bullets' "$av"; ok "ask: system prompt names the line range form and the 25 bullet cap" $?
+rm -rf "$ar"
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail
