@@ -1,6 +1,6 @@
 # Read gate v2: a script every agent can call, and a budget in lines
 
-Status: reviewed
+Status: approved 2026-11-09
 Slug: read-gate-v2
 Date: 2026-11-08
 
@@ -163,3 +163,4 @@ none new. The `claude` CLI is already required by the host; `perl` and `awk` are
 - Round 1 (2026-11-08): paraphrase context missing, 0 divergences, 10 guesses; critic B0 M5 N4; readiness B0 M5 N3. Fixed 27, rejected 0, escalated 0. Not run: none.
 - Round 2 (2026-11-08): paraphrase context sufficient, 0 divergences, 6 guesses; critic B0 M0 N0, all 17 earlier resolved; readiness B1 M0 N0. Fixed 6 after the re-audit (R2-1 and five guess clarifications), dropped 1 Nit (usage line wording). Not run: none.
 - Fixed after round 2, unreviewed: R2-1 splitting at `||` (F2.24); five one-line clarifications of fallback denial content, loop guard after the 3rd denial, shared counter for F3, whole-range rule for Read, ask.sh check order.
+- Approved (2026-11-09): the user replied "go" to the request "If you say I approve read-gate-v2, I'll record that in the spec and start right away".
