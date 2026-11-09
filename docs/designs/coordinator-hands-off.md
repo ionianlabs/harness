@@ -1,6 +1,6 @@
 # Coordinator hands off: the main thread delegates all repo writes to worker agents
 
-Status: reviewed
+Status: approved 2026-11-09
 Slug: coordinator-hands-off
 Date: 2026-11-08
 
@@ -185,3 +185,4 @@ none
 - Round 2 (2026-11-08): paraphrase context sufficient, 0 divergences, 9 guesses; critic B1 M0 N0, all 22 earlier resolved; readiness B1 M0 N0, 21 earlier resolved, R1-1 open. Not run: none.
 - Clarification (2026-11-08): Should the gate protect its own config? Answer: deny main-thread writes, deletes and moves of both config paths. Changed: F2, F3, Decisions, Out of scope.
 - Fixed after round 2, unreviewed: C2-1 rules inline in the agent files, skills become pointers, template folded into the drafter; R2-1 splitter description; R1-1 exact phrases for descriptions and checklist; `path=` for denied Bash; six one-line clarifications.
+- Approved (2026-11-09): the user replied "nice go" to the request "Say 'I approve coordinator-hands-off' to approve it as it stands, or tell me to run the extra review round first", approving it as it stands, without the extra round.
