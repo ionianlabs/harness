@@ -57,8 +57,34 @@ msg_has() {  # name, agent_type, expected substring, unwanted substring
   m="$(echo "{\"tool_name\":\"Read\",\"agent_type\":\"$2\",\"session_id\":\"t9-$2\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash $R 2>&1 >/dev/null)"
   if [[ "$m" == *"$3"* && "$m" != *"$4"* ]]; then echo "ok   $1"; else echo "FAIL $1: $m"; fail=1; fi
 }
-msg_has "read: subagent denial says grep, not reader" general-purpose "offset and limit" "reader"
-msg_has "read: main denial names the reader"          ""              "reader"           "@@none@@"
+# F1.11-F1.13: every denial names the ask.sh command; fallback text without claude or with ask = false
+ROOT="$PWD"; NOCLAUDE="$(tr : '\n' <<<"$PATH" | grep -vxF "$(dirname "$(command -v claude)")" | paste -sd: -)"
+askrepo="$(mktemp -d)"; git -C "$askrepo" init -q; printf '[read]\nask = "false"\n' > "$askrepo/harness.toml"
+dmsg() {  # session, agent_id, agent_type, cwd, PATH ; prints the denial stderr, run in a throwaway repo
+  jq -nc --arg s "$1" --arg i "$2" --arg t "$3" --arg c "$4" --arg f "$tmp/big.txt" \
+    '{tool_name:"Read",session_id:$s,agent_id:$i,agent_type:$t,cwd:$c,tool_input:{file_path:$f}}' \
+    | (cd "$tmp" && PATH="$5" bash "$ROOT/$R" 2>&1 >/dev/null)
+}
+mcheck() {  # name, message, wanted substring, unwanted substring
+  n=$((n+1)); if [[ "$2" == *"$3"* && "$2" != *"$4"* ]]; then echo "ok   $1"; else echo "FAIL $1: $2"; fail=1; fi
+}
+ASK="bash $ROOT/lib/ask.sh \""
+m="$(dmsg f11a "" "" "$tmp" "$PATH")"
+mcheck "read: main denial names the ask command and file" "$m" "$ASK" "@@none@@"
+mcheck "read: main denial names the denied file"          "$m" "$tmp/big.txt" "reader"
+mcheck "read: main denial says offset and limit on ranges" "$m" "offset and limit" "reader"
+m="$(dmsg f11b "agent-1" "general-purpose" "$tmp" "$PATH")"
+mcheck "read: subagent denial names the ask command"       "$m" "$ASK" "reader"
+mcheck "read: subagent denial names the denied file"       "$m" "$tmp/big.txt" "reader"
+m="$(dmsg f12a "" "" "$tmp" "$NOCLAUDE")"
+mcheck "read: no claude on PATH, main gets fallback"       "$m" "Grep (or grep -n)" "ask.sh"
+m="$(dmsg f12b "agent-1" "general-purpose" "$tmp" "$NOCLAUDE")"
+mcheck "read: no claude on PATH, subagent gets fallback"   "$m" "Grep (or grep -n)" "ask.sh"
+m="$(dmsg f12c "" "" "$askrepo" "$PATH")"
+mcheck "read: ask = false, main gets fallback"             "$m" "Grep (or grep -n)" "ask.sh"
+m="$(dmsg f12d "agent-1" "general-purpose" "$askrepo" "$PATH")"
+mcheck "read: ask = false, subagent gets fallback"         "$m" "Grep (or grep -n)" "ask.sh"
+n=$((n+1)); if grep -q "agent=main tool=Read session=f11a " "$tmp/.git/harness/gate.log"; then echo "ok   read: log line carries session"; else echo "FAIL read: log line carries session"; fail=1; fi
 # read: documented gap: outside a git repo the denial counter lives in /tmp/harness (shared by every non-git cwd); kept because a per-user path would need a decision on cleanup
 ng="$(mktemp -d)"; rm -f /tmp/harness/denials-gapsess
 (cd "$ng" && echo "{\"tool_name\":\"Read\",\"session_id\":\"gapsess\",\"tool_input\":{\"file_path\":\"$tmp/big.txt\"}}" | bash "$OLDPWD/$R" >/dev/null 2>&1)

@@ -21,9 +21,15 @@ counter="$state_dir/denials-$session"
 # audit line per call: time, agent, tool, input summary, decision filled in by deny/exit
 log="$state_dir/gate.log"
 summary="$(jq -r '.tool_input | (.file_path // .command // "") + (if .offset or .limit then " [offset=\(.offset // "-") limit=\(.limit // "-")]" else "" end)' <<<"$payload")"
-echo "$(date +%H:%M:%S) agent=${agent:-main} tool=$tool $summary" >> "$log"
+echo "$(date +%H:%M:%S) agent=${agent:-main} tool=$tool session=$session $summary" >> "$log"
 
 base="$(jq -r '.cwd // empty' <<<"$payload")"; [ -n "$base" ] || base="$PWD"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo="$(git -C "$base" rev-parse --show-toplevel 2>/dev/null || echo "$base")"
+# the ask command is named only when the config allows it and claude is installed
+use_ask=1
+[ "$(bash "$here/lib/config.sh" "$repo" read.ask true 2>/dev/null)" = "false" ] && use_ask=0
+command -v claude >/dev/null 2>&1 || use_ask=0
 lines_of() {  # relative paths resolve against the payload cwd, moved by any cd in the command
   local f="$1"; case "$f" in /*) ;; *) f="$base/$f" ;; esac
   if [ -f "$f" ]; then wc -l < "$f" | tr -d ' '; else echo 0; fi
@@ -36,16 +42,16 @@ deny() {  # $1 file  $2 line count
   if [ "$n" -gt 3 ]; then echo "  -> loop guard, allowed" >> "$log"; exit 0; fi
   echo "  -> DENIED ($n/3)" >> "$log"
   echo "Read gate: $1 has $2 lines (limit $LIMIT). Do not load it whole." >&2
-  if [ -n "$agent" ]; then  # subagents cannot dispatch another agent
+  if [ "$use_ask" = 1 ]; then
     cat >&2 <<MSG
-Find the part you need with Grep (or grep -n) for a name or string, then Read with
-offset and limit on that range only.
+Get the lines you need with one precise question about this file, answered by a cheap model:
+bash $here/lib/ask.sh "<one precise question>" $1
+Then Read with offset and limit only on the line ranges it returns.
 MSG
   else
     cat >&2 <<MSG
-Dispatch the "reader" agent with one precise question about this file and ask for
-line numbers. If you then still need the text, Read with offset and limit on the
-range it names.
+Find the part you need with Grep (or grep -n) for a name or string, then Read with
+offset and limit on that range only.
 MSG
   fi
   exit 2
