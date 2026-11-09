@@ -236,7 +236,7 @@ A="$PWD/lib/ask.sh"; ar="$(mktemp -d)"; git -C "$ar" init -q; fk="$ar/fake"; mkd
 printf 'line %d\n' $(seq 1 400) > "$ar/big.txt"; printf 'alpha\nbeta\n' > "$ar/two.txt"
 fakecl() { printf '#!/bin/bash\n%s\n' "$1" > "$fk/claude"; chmod +x "$fk/claude"; }
 askrun() {  # args to ask.sh; sets aout, aerr, arc; runs inside the throwaway repo
-  aout="$(cd "$ar" && PATH="$fk:$PATH" bash "$A" "$@" 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
+  aout="$(cd "$ar" && PATH="$fk:$PATH" bash "$A" "$@" 2>"$ar/err" </dev/null)"; arc=$?; aerr="$(cat "$ar/err")"
 }
 ok() {  # name, condition result (0 = pass)
   n=$((n+1)); if [ "$2" = 0 ]; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi
@@ -260,10 +260,12 @@ fakecl 'touch "'"$ar"'/called"'
 askrun "q" two.txt nul.dat; [ "$arc" = 66 ] && [[ "$aerr" == *nul.dat* ]] && [ ! -e "$ar/called" ]; ok "ask: NUL byte exits 66, no claude call (F1.5)" $?
 askrun "q" shot.png two.txt; [ "$arc" = 66 ] && [[ "$aerr" == *shot.png* ]] && [ ! -e "$ar/called" ]; ok "ask: image extension exits 66, no claude call (F1.5)" $?
 askrun "q" nul.dat missing.txt; [ "$arc" = 66 ]; ok "ask: first failing file in order decides (F1.5)" $?
+askrun "q" shot.png missing.txt; [ "$arc" = 66 ] && [ ! -e "$ar/called" ]; ok "ask: first failure decides, later files and claude untouched (F1.5)" $?
 fakecl 'cat'
 aout="$(cd "$ar" && HARNESS_ASK_MAX_BYTES=1000 PATH="$fk:$PATH" bash "$A" "q" big.txt 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
 [ "$arc" = 67 ] && [[ "$aerr" == *1000* ]] && [[ "$aerr" == *Grep* ]]; ok "ask: payload over the cap exits 67 naming cap and Grep (F1.6)" $?
-aout="$(cd "$ar" && PATH="/usr/bin:/bin" bash "$A" "q" big.txt 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
+nc="$ar/nocl"; mkdir "$nc"; for t in bash git perl awk tr cmp wc date mktemp rm mkdir cat dirname basename sed grep head tail ls kill sleep; do p="$(command -v $t)"; [ -n "$p" ] && ln -s "$p" "$nc/$t"; done
+aout="$(cd "$ar" && PATH="$nc" "$nc/bash" "$A" "q" big.txt 2>"$ar/err")"; arc=$?; aerr="$(cat "$ar/err")"
 [ "$arc" = 68 ] && [[ "$aerr" == *claude* ]]; ok "ask: claude not on PATH exits 68 (F1.7)" $?
 fakecl 'echo "API error"; exit 1'
 askrun "q" big.txt; [ "$arc" = 69 ] && [ -z "$aout" ] && [ "$(printf '%s\n' "$aerr" | wc -l | tr -d ' ')" = 1 ]; ok "ask: failing call exits 69, stdout empty, one stderr line (F1.8)" $?
@@ -292,6 +294,23 @@ HARNESS_ASK_MODEL=sonnet askrun "q" two.txt; pair --model sonnet; ok "ask: HARNE
 grep -qx 'CLAUDE_CODE_DISABLE_AUTO_MEMORY=1' "$ar/env" && grep -qx 'CLAUDE_CODE_DISABLE_CLAUDE_MDS=1' "$ar/env"; ok "ask: env disables auto memory and CLAUDE.md files (F1.14)" $?
 cwd="$(cat "$ar/pwd")"; [ "$(tr -d ' ' < "$ar/cwdfiles")" = 0 ] && [ ! -e "$cwd" ] && [ "$cwd" != "$ar" ]; ok "ask: runs from an empty temp dir removed on exit (F1.14)" $?
 grep -qF 'L<start>-L<end>' "$av" && grep -qF 'at most 25 bullets' "$av"; ok "ask: system prompt names the line range form and the 25 bullet cap" $?
+# review fixes: odd file names, interrupt, session sanitizing
+printf 'eq\n' > "$ar/a=b"; printf 'dash\n' > "$ar/-x.txt"; fakecl 'cat'
+askrun "q" 'a=b' '-x.txt'
+[ "$arc" = 0 ] && printf '%s\n' "$aout" | grep -qx "$(printf '1\teq')" && printf '%s\n' "$aout" | grep -qx "$(printf '1\tdash')" \
+  && [[ "$aout" == *"<file path=\"$ar/a=b\">"* ]] && [[ "$aout" == *"<file path=\"$ar/-x.txt\">"* ]]; ok "ask: file names a=b and -x.txt arrive numbered (F1.1)" $?
+fakecl 'echo $$ > "'"$ar"'/pid"; sleep 30 & echo $! > "'"$ar"'/cpid"; wait'
+rm -f "$ar/pid" "$ar/cpid"
+( cd "$ar" && PATH="$fk:$PATH" exec bash "$A" "q" big.txt >/dev/null 2>&1 </dev/null ) & ap=$!
+for _ in $(seq 1 50); do [ -s "$ar/pid" ] && [ -s "$ar/cpid" ] && break; sleep 0.05; done
+pids="$(cat "$ar/pid" "$ar/cpid" 2>/dev/null)"; kill -TERM "$ap" 2>/dev/null
+wait "$ap"; arc=$?; sleep 0.2; alive=0; for p in $pids; do kill -0 "$p" 2>/dev/null && alive=1; done
+[ "$arc" = 143 ] && [ "$alive" = 0 ] && [ -n "$pids" ]; ok "ask: TERM kills claude and its child, exits 143" $?
+fakecl 'cat >/dev/null; echo ok'
+sid="$(printf 'ab\nx=y')"
+aout="$(cd "$ar" && CLAUDE_SESSION_ID="$sid" PATH="$fk:$PATH" bash "$A" "q" two.txt 2>/dev/null)"
+ll="$(tail -1 "$ar/.git/harness/gate.log")"
+[[ "$ll" == *"tool=ask session=ab_x_y files=1 "* ]] && [ "$(grep -c 'tool=ask session=ab_x_y' "$ar/.git/harness/gate.log")" = 1 ]; ok "ask: session id in gate.log is sanitized" $?
 rm -rf "$ar"
 rm -rf "$tmp" "$fresh" /tmp/harness
 echo "$n checks"; exit $fail
