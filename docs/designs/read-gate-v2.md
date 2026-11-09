@@ -53,7 +53,7 @@ Scenarios (unit scenarios put a fake `claude` executable first on `PATH`; the fi
 
 The model call itself: the prompt requires bullets only, each starting `<absolute path>:L<start>-L<end>` then the fact, at most 25 bullets, and one bullet saying so when the answer is not in the files. The answer is a locator; the caller Reads the cited ranges when it needs the text. The call runs from a fresh empty temporary directory with auto memory and CLAUDE.md loading disabled, no tools, no session persistence, no MCP, no settings sources and no slash commands. A bound of `HARNESS_ASK_TIMEOUT` seconds is enforced without relying on `timeout`, which macOS lacks.
 
-Testability: unit. Tested on its own by running `lib/ask.sh` and the gate against a fake `claude` first on `PATH` (echo, argv dump, error text with exit 1, sleep) in a throwaway git repo; shows exit code, stdout, stderr, the log line and the recorded argv. The real model call is a manual check outside the unit suite (like `tests/compat-brain.sh`) because it costs tokens; see SC3.
+Testability: unit. Tested on its own by running `lib/ask.sh` and the gate against a fake `claude` first on `PATH` (echo, argv dump, error text with exit 1, sleep) in a throwaway git repo; shows exit code, stdout, stderr, the log line and the recorded argv. The real model call is a manual check outside the unit suite because it costs tokens; see SC3.
 
 ### F2. Per-file line budget across read forms (P2)
 Why: removes cause two. The gate counts lines, not syntax, so ranges cannot add up to a whole file unnoticed.

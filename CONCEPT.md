@@ -148,7 +148,7 @@ Harness and Brain are separate Ionian products that complement each other. A PM 
 | Coexistence | The read gate never blocks a Brain skill (Brain reads only the top of logs) | The commit gate acts only in repos with a harness config, so a brain folder is never gated |
 | Names | `brain:agenda`, `brain:drop`, `brain:triage`, `brain:sync`, `brain:aware` | `ionian-harness:state`, `spec-draft`, `spec-review`, `tdd` |
 
-Order at the end of a session in a repo: `state`, then `brain:sync`. `tests/compat-brain.sh` checks this by hand (it costs tokens and is not part of `tests/run.sh`).
+Order at the end of a session in a repo: `state`, then `brain:sync`.
 
 ## 6a. Why not just install the parts
 
