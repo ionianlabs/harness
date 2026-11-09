@@ -349,7 +349,8 @@ g_secret() {
 if command -v gitleaks >/dev/null 2>&1; then
   live="$(repo_with '' src/a.py tests/a_test.sh)"
   printf '[test]\nunit = "true"\ndir = "tests"\n' > "$live/harness.toml"   # no [security]: the default scan command runs
-  fake="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 36)"      # built at runtime, never a literal
+  # built at runtime, never a literal; finite input, because git hooks run with SIGPIPE ignored and tr on /dev/urandom never ends
+  fake="ghp_$(head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 36)"
   echo "token = $fake" > "$live/src/leak.txt"; git -C "$live" add src/leak.txt
   check "secret: staged token denied (live gitleaks)" 2 $C "$(commit "$live" "add leak")"
   msg="$(commit "$live" "add leak" | bash $C 2>&1 >/dev/null)"
