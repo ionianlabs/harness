@@ -221,6 +221,157 @@ g_budget() {
   ok "bash ls passes" "$rc"
   rm -rf "$br" "$br2" "$br3"
 }
+bb_setup() {
+# read-gate-v2 F2 part b: Bash read forms count into the same per-agent ledger as Read
+# three groups share this setup so they run in parallel; every group is its own subshell, so plain variables are fine
+  br="$(mktemp -d)"; git -C "$br" init -q; br2="$(mktemp -d)"; git -C "$br2" init -q
+  printf 'line %d\n' $(seq 1 400) > "$br/big.txt"; printf 'line %d\n' $(seq 1 400) > "$br2/big.txt"
+  printf '[read]\nfile_budget = "100"\n' > "$br2/harness.toml"
+  printf 'line %d\n' $(seq 1 200) > "$br/mid.txt"; printf '\x89PNG\r\n\x1a\n%.0s' $(seq 1 400) > "$br/shot.png"
+  mkdir "$br/sub"; printf 'line %d\n' $(seq 1 400) > "$br/sub/deep.txt"
+  sp="$br/dbl  space.txt"; printf 'line %d\n' $(seq 1 400) > "$sp"
+  st="$br/.git/harness"; f="$br/big.txt"
+  bsh() {  # repo session agent_id agent_type command ; sets rc and err
+    err="$(jq -nc --arg s "$2" --arg i "$3" --arg t "$4" --arg c "$1" --arg m "$5" \
+      '{tool_name:"Bash",session_id:$s,agent_id:$i,agent_type:$t,cwd:$c,tool_input:{command:$m}}' \
+      | (cd "$1" && bash "$R" 2>&1 >/dev/null))"; rc=$?
+  }
+  bdc() {  # name, expected exit, then repo session agent_id agent_type command
+    local nm="$1" want="$2"; shift 2; bsh "$@"; n=$((n+1))
+    if [ "$rc" = "$want" ]; then echo "ok   $nm"; else echo "FAIL $nm (expected $want, got $rc)"; fail=1; fi
+  }
+  rdo() {  # repo session offset limit file ; main-thread Read, sets rc and err
+    err="$(jq -nc --arg s "$2" --arg c "$1" --arg o "$3" --arg l "$4" --arg f "$5" \
+      '{tool_name:"Read",session_id:$s,cwd:$c,tool_input:({file_path:$f}+(if $o!="" then {offset:($o|tonumber)} else {} end)+(if $l!="" then {limit:($l|tonumber)} else {} end))}' \
+      | (cd "$1" && bash "$R" 2>&1 >/dev/null))"; rc=$?
+  }
+  has() { grep -qxF "$2" "$st/$1" 2>/dev/null; }
+  nrec() { if [ -e "$st/reads-$1" ]; then wc -l < "$st/reads-$1" | tr -d ' '; else echo 0; fi; }
+}
+g_budgetb1() {
+  bb_setup
+  # F2.3 shared ledger: Read and Bash count into one budget
+  rdo "$br" b3 1 300 "$f"; bdc "F2.3 bash: after Read 1-300, sed 301-360 denied" 2 "$br" b3 "" "" "sed -n '301,360p' $f"
+  mcheck "F2.3 bash: denial says seen 1-300"   "$err" "seen 1-300" "loop"
+  mcheck "F2.3 bash: denial says budget 350"   "$err" "budget 350" "loop"
+  mcheck "F2.3 bash: denial names lib/ask.sh"  "$err" "lib/ask.sh" "loop"
+  bdc "F2.3 bash: seen lines cost nothing"     0 "$br" b3 "" "" "sed -n '200,299p' $f"
+  bdc "F2.3 bash first, then Read denied"      0 "$br" b3b "" "" "sed -n '1,300p' $f"
+  rdo "$br" b3b 301 60 "$f"; n=$((n+1)); if [ "$rc" = 2 ]; then echo "ok   F2.3 Read after bash 1-300: 301-360 denied"; else echo "FAIL F2.3 Read after bash 1-300 (got $rc)"; fail=1; fi
+  mcheck "F2.3 Read after bash: seen 1-300"   "$err" "seen 1-300" "loop"
+  bdc "F2.3 bash fallback ask=false"           0 "$br2" b3c "" "" "sed -n '1,100p' $br2/big.txt"
+  bdc "F2.3 bash: ranges joined with commas"   0 "$br" b3d "" "" "sed -n -e '1,3p' -e '9p' $f"
+  bdc "F2.3 bash: 20-400 denied"               2 "$br" b3d "" "" "sed -n '20,400p' $f"
+  mcheck "F2.3 bash: seen 1-3,9-9"             "$err" "seen 1-3,9-9" "loop"
+  bdc "F2.3 one sed with two ranges, 351 lines" 2 "$br" b3e "" "" "sed -n '1,200p;250,400p' $f"
+  mcheck "F2.3 each print command is counted"  "$err" "seen 1-200" "loop"
+  ok "F2.3 denied command records nothing" "$([ "$(nrec b3e)" = 0 ]; echo $?)"
+  bdc "F2.3 && chain: second read denied"      2 "$br" b3f "" "" "sed -n '1,300p' $f && sed -n '301,360p' $f"
+  ok "F2.3 && chain denial records nothing" "$([ "$(nrec b3f)" = 0 ]; echo $?)"
+  bdc "F2.3 ; chain: both reads fit"           0 "$br" b3g "" "" "sed -n '1,100p' $f; head -n 50 $f"
+  ok "F2.3 ; chain records both" "$(has reads-b3g "main $f 1 100" && has reads-b3g "main $f 1 50"; echo $?)"
+  # F2.5 whole-file reads stay denied
+  bdc "F2.5 sed -n 1,400p denied"              2 "$br" b5 "" "" "sed -n '1,400p' $f"
+  bdc "F2.5 sed -n 1,\$p denied"               2 "$br" b5 "" "" "sed -n '1,\$p' $f"
+  bdc "F2.5 cat denied"                        2 "$br" b5 "" "" "cat $f"
+  bdc "F2.5 head -n 351 denied (over limit)"   2 "$br" b5b "" "" "head -n 351 $f"
+  bdc "F2.5 tail -n +1 covers every line"      2 "$br" b5c "" "" "tail -n +1 $f"
+  ok "F2.5 whole-file denials record nothing" "$([ ! -e "$st/reads-b5" ] && [ ! -e "$st/reads-b5b" ] && [ ! -e "$st/reads-b5c" ]; echo $?)"
+  # F2.6 a pipe makes the segment targeted; not counted
+  bdc "F2.6 sed piped to cat passes"           0 "$br" b6 "" "" "sed -n '1,300p' $f | cat"
+  bdc "F2.6 awk with a > inside quotes is not a redirect" 0 "$br" b6b "" "" "awk 'NR>=5 && NR<=8' $f"
+  ok "F2.6 piped sed not counted" "$([ ! -e "$st/reads-b6" ]; echo $?)"
+  ok "F2.6 quoted > does not hide the awk range" "$(has reads-b6b "main $f 5 8"; echo $?)"
+  bdc "F2.6 sed redirected to a file passes"   0 "$br" b6c "" "" "sed -n '1,400p' $f > $br/o.txt"
+  # F2.7 loop guard shared across forms, per agent and file
+  bdc "F2.7 bash denial 1"                     2 "$br" b7 "" "" "cat $f"
+  bdc "F2.7 bash denial 2"                     2 "$br" b7 "" "" "sed -n '1,400p' $f"
+  rdo "$br" b7 "" "" "$f"; n=$((n+1)); if [ "$rc" = 2 ]; then echo "ok   F2.7 Read denial 3 shares the counter"; else echo "FAIL F2.7 Read denial 3 (got $rc)"; fail=1; fi
+  bdc "F2.7 4th read passes"                   0 "$br" b7 "" "" "sed -n '1,300p' $f"
+  ok "F2.7 loop guard pass is recorded" "$(has reads-b7 "main $f 1 300"; echo $?)"
+  rm -rf "$br" "$br2"
+}
+g_budgetb2() {
+  bb_setup
+  # F2.8 exempt agents
+  bdc "F2.8 reader sed passes"                 0 "$br" b8 x reader "cat $f"
+  bdc "F2.8 spec-critic head passes"           0 "$br" b8 x ionian-harness:spec-critic "head -n 50 $f"
+  ok "F2.8 exempt bash records nothing" "$([ ! -e "$st/reads-b8" ]; echo $?)"
+  # F2.9 fail open
+  bdc "F2.9 unexpanded variable in sed passes" 0 "$br" b9 "" "" 'sed -n "$X" '"$f"
+  ok "F2.9 log says parse error" "$(grep -q 'parse error' "$st/gate.log"; echo $?)"
+  ok "F2.9 parse error records nothing" "$([ ! -e "$st/reads-b9" ]; echo $?)"
+  mkdir -p "$st"; : > "$st/reads-b9s"; chmod 000 "$st/reads-b9s"
+  bdc "F2.9 unreadable state, sed passes"      0 "$br" b9s "" "" "sed -n '1,300p' $f"
+  ok "F2.9 bash log says state error" "$(grep -q 'state error' "$st/gate.log"; echo $?)"
+  bdc "F2.9 whole-file denial unaffected"      2 "$br" b9s "" "" "cat $f"
+  chmod 600 "$st/reads-b9s"
+  # F2.10 configured budget
+  bdc "F2.10 file_budget 100 denies head 150"  2 "$br2" b10 "" "" "head -n 150 $br2/big.txt"
+  bdc "F2.10 file_budget 100 allows head 100"  0 "$br2" b10b "" "" "head -n 100 $br2/big.txt"
+  # F2.11 small files
+  bdc "F2.11 sed 1,200p of 200-line file"      0 "$br" b11 "" "" "sed -n '1,200p' $br/mid.txt"
+  bdc "F2.11 cat of 200-line file"             0 "$br" b11 "" "" "cat $br/mid.txt"
+  bdc "F2.11 missing file passes"              0 "$br" b11 "" "" "sed -n '1,200p' $br/nope.txt"
+  ok "F2.11 nothing recorded" "$([ ! -e "$st/reads-b11" ]; echo $?)"
+  # F2.12 to F2.18 and F2.23: the delivered range of each form
+  rng() {  # name, session, command, expected "start end" list separated by ';'
+    bdc "$1 passes" 0 "$br" "$2" "" "" "$3"
+    local want="$4" r
+    local IFS=';'; for r in $want; do ok "$1 delivers $r" "$(has "reads-$2" "main $f $r"; echo $?)"; done
+  }
+  rng "F2.12 sed -n '10,12p'"            b12 "sed -n '10,12p' $f" "10 12"
+  rng "F2.13 sed -n 10p"                 b13 "sed -n 10p $f" "10 10"
+  rng "F2.13 sed -n -e -e"               b13b "sed -n -e '1,3p' -e '9p' $f" "1 3;9 9"
+  rng "F2.14 head -n 20"                 b14 "head -n 20 $f" "1 20"
+  rng "F2.14 head -20"                   b14b "head -20 $f" "1 20"
+  rng "F2.15 tail -n 20"                 b15 "tail -n 20 $f" "381 400"
+  rng "F2.16 tail -n +395"               b16 "tail -n +395 $f" "395 400"
+  rng "F2.17 awk NR>=5 && NR<=8"         b17 "awk 'NR>=5 && NR<=8' $f" "5 8"
+  rng "F2.18 awk NR==5,NR==8"            b18 "awk 'NR==5,NR==8' $f" "5 8"
+  rng "F2.23 sed -n '391,\$p'"           b23 "sed -n '391,\$p' $f" "391 400"
+  bdc "relative path after cd passes" 0 "$br" b12r "" "" "cd sub && sed -n '1,3p' deep.txt"
+  ok "cd sub records the absolute path" "$(has reads-b12r "main $br/sub/deep.txt 1 3"; echo $?)"
+  # F2.19 and F2.20
+  bdc "F2.19 head -n 350 passes"               0 "$br" b19 "" "" "head -n 350 $f"
+  bdc "F2.19 then sed 351,400p denied"         2 "$br" b19 "" "" "sed -n '351,400p' $f"
+  bdc "F2.20 agent a1 reads 1-300"             0 "$br" b20 a1 general-purpose "sed -n '1,300p' $f"
+  bdc "F2.20 agent b1 reads 1-300"             0 "$br" b20 b1 general-purpose "sed -n '1,300p' $f"
+  ok "F2.20 state has both agents" "$(has reads-b20 "a1 $f 1 300" && has reads-b20 "b1 $f 1 300"; echo $?)"
+  for i in 1 2 3; do bdc "F2.21 a1 cat denied $i" 2 "$br" b21 a1 general-purpose "cat $f"; done
+  bdc "F2.21 b1 first cat denied"              2 "$br" b21 b1 general-purpose "cat $f"
+  bdc "F2.21 a1 4th passes"                    0 "$br" b21 a1 general-purpose "cat $f"
+  rm -rf "$br" "$br2"
+}
+g_budgetb3() {
+  bb_setup
+  # F2.22 sed without -n prints everything
+  bdc "F2.22 sed s/a/b/ is whole-file"         2 "$br" b22 "" "" "sed 's/a/b/' $f"
+  bdc "F2.22 sed -i passes"                    0 "$br" b22b "" "" "sed -i 's/a/b/' $br2/big.txt"
+  bdc "F2.22 sed with regex address passes"    0 "$br" b22b "" "" "sed -n '/line 5/p' $f"
+  bdc "F2.22 regex address beside a range: nothing counted" 0 "$br" b22b "" "" "sed -n -e '1,300p' -e '/line 5/p' $f"
+  bdc "F2.22 head -c passes"                  0 "$br" b22b "" "" "head -c 100 $f"
+  bdc "F2.22 tail -c passes"                   0 "$br" b22b "" "" "tail -c 100 $f"
+  bdc "F2.22 other awk program passes"         0 "$br" b22b "" "" "awk '{print}' $f"
+  ok "F2.22 uncounted forms record nothing" "$([ ! -e "$st/reads-b22b" ]; echo $?)"
+  # F2.24 split at ||
+  bdc "F2.24 sed whole range || true"          2 "$br" b24 "" "" "sed -n '1,400p' $f || true"
+  bdc "F2.24 cat || true"                      2 "$br" b24b "" "" "cat $f || true"
+  bdc "F2.24 || with a pipe on the other side" 0 "$br" b24c "" "" "true || cat $f | head -3"
+  bdc "F2.24 || inside quotes does not split"  0 "$br" b24d "" "" "echo 'a || cat $f'"
+  # images, PDFs, plain commands
+  bdc "bash cat of a big png passes"           0 "$br" b25 "" "" "cat $br/shot.png"
+  bdc "bash sed range of a big png passes"     0 "$br" b25 "" "" "sed -n '1,300p' $br/shot.png"
+  ok "png reads are not recorded" "$([ ! -e "$st/reads-b25" ]; echo $?)"
+  bdc "bash ls passes"                         0 "$br" b26 "" "" "ls"
+  bdc "bash git status passes"                 0 "$br" b26 "" "" "git status"
+  # nit: a path with two spaces in a row matches exactly
+  rdo "$br" b27 1 300 "$sp"; rdo "$br" b27 301 60 "$sp"
+  n=$((n+1)); if [ "$rc" = 2 ]; then echo "ok   union: path with two spaces matches exactly"; else echo "FAIL union: path with two spaces matches exactly (got $rc)"; fail=1; fi
+  mcheck "union: two-space path seen 1-300" "$err" "seen 1-300" "loop"
+  bdc "union: two-space path via bash"         2 "$br" b27b "" "" "sed -n '1,300p' '$sp'; sed -n '301,360p' '$sp'"
+  rm -rf "$br" "$br2"
+}
 g_commit1() {
   tmp="$(mktemp -d)"; git -C "$tmp" init -q; printf 'line %d\n' $(seq 1 400) > "$tmp/big.txt"; echo hi > "$tmp/small.txt"
 # commit gate, in a throwaway repo with its own harness.toml
@@ -499,7 +650,7 @@ run_group() {  # name: run the group in a subshell, output and counters to files
   ( n=0; fail=0; "$1"; echo "$n $fail" > "$OUT/$1.rc" ) > "$OUT/$1.out" 2>&1 &
 }
 OUT="$TROOT/out"; mkdir "$OUT"
-groups="g_read1 g_read2 g_failopen g_budget g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
+groups="g_read1 g_read2 g_failopen g_budget g_budgetb1 g_budgetb2 g_budgetb3 g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3"
 groups="$groups g_agents"   # coordinator-hands-off group, own line
 for g in $groups; do run_group $g; done
 wait
