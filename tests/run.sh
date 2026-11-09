@@ -421,12 +421,15 @@ g_ask3() {
   ask_setup
 fakecl 'cat >/dev/null; echo ok'
 rm -rf "$ar/.git/harness"
-unset CLAUDE_SESSION_ID; askrun "q" big.txt two.txt
+unset CLAUDE_CODE_SESSION_ID; askrun "q" big.txt two.txt
 ll="$(tail -1 "$ar/.git/harness/gate.log")"
 [ "$arc" = 0 ] && [[ "$ll" =~ ^[0-9:]{8}\ agent=unknown\ tool=ask\ session=unknown\ files=2\ bytes=[0-9]+\ exit=0\ seconds=[0-9]+$ ]]; ok "ask: gate.log line, session unknown without env (F1.10)" $?
-aout="$(cd "$ar" && CLAUDE_SESSION_ID=sess-9 PATH="$fk:$PATH" bash "$A" "q" missing.txt 2>/dev/null)"
+aout="$(cd "$ar" && CLAUDE_CODE_SESSION_ID=sess-9 PATH="$fk:$PATH" bash "$A" "q" missing.txt 2>/dev/null)"
 ll="$(tail -1 "$ar/.git/harness/gate.log")"
 [[ "$ll" == *"tool=ask session=sess-9 files=1 bytes=0 exit=65 "* ]]; ok "ask: failing run is logged with session id and exit (F1.10)" $?
+aout="$(cd "$ar" && CLAUDE_SESSION_ID=old-name PATH="$fk:$PATH" bash "$A" "q" missing.txt 2>/dev/null)"
+ll="$(tail -1 "$ar/.git/harness/gate.log")"
+[[ "$ll" == *"tool=ask session=unknown "* ]]; ok "ask: CLAUDE_SESSION_ID alone is ignored, session unknown" $?
 fakecl 'printf "%s\n" "$@" > "'"$ar"'/argv"; env > "'"$ar"'/env"; pwd > "'"$ar"'/pwd"; ls -A | wc -l > "'"$ar"'/cwdfiles"; cat >/dev/null; echo ok'
 askrun "q" two.txt
 av="$ar/argv"; has() { grep -qxF -- "$1" "$av"; }
@@ -451,7 +454,7 @@ wait "$ap"; arc=$?; sleep 0.2; alive=0; for p in $pids; do kill -0 "$p" 2>/dev/n
 [ "$arc" = 143 ] && [ "$alive" = 0 ] && [ -n "$pids" ]; ok "ask: TERM kills claude and its child, exits 143" $?
 fakecl 'cat >/dev/null; echo ok'
 sid="$(printf 'ab\nx=y')"
-aout="$(cd "$ar" && CLAUDE_SESSION_ID="$sid" PATH="$fk:$PATH" bash "$A" "q" two.txt 2>/dev/null)"
+aout="$(cd "$ar" && CLAUDE_CODE_SESSION_ID="$sid" PATH="$fk:$PATH" bash "$A" "q" two.txt 2>/dev/null)"
 ll="$(tail -1 "$ar/.git/harness/gate.log")"
 [[ "$ll" == *"tool=ask session=ab_x_y files=1 "* ]] && [ "$(grep -c 'tool=ask session=ab_x_y' "$ar/.git/harness/gate.log")" = 1 ]; ok "ask: session id in gate.log is sanitized" $?
   rm -rf "$ar"

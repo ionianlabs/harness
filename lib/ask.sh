@@ -3,12 +3,12 @@
 # Usage: bash ask.sh "<question>" <file>...
 # Exit: 0 ok; 64 usage; 65 file missing, unreadable or a directory; 66 binary or image/PDF file;
 #       67 payload over HARNESS_ASK_MAX_BYTES; 68 claude not on PATH; 69 model call failed; 70 timeout.
-# Env: HARNESS_ASK_MODEL (haiku), HARNESS_ASK_TIMEOUT (60 s), HARNESS_ASK_MAX_BYTES (400000), CLAUDE_SESSION_ID (log only).
+# Env: HARNESS_ASK_MODEL (haiku), HARNESS_ASK_TIMEOUT (60 s), HARNESS_ASK_MAX_BYTES (400000), CLAUDE_CODE_SESSION_ID (log only).
 model="${HARNESS_ASK_MODEL:-haiku}"; limit="${HARNESS_ASK_TIMEOUT:-60}"; cap="${HARNESS_ASK_MAX_BYTES:-400000}"
 gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || echo /tmp)"
 log="$gitdir/harness/gate.log"
 stage=""; work=""; sp=""; bytes=0; nfiles=$(( $# > 0 ? $# - 1 : 0 ))
-sess="$(printf %s "${CLAUDE_SESSION_ID:-unknown}" | tr -c 'A-Za-z0-9._-' '_')"  # no newline can forge a log line
+sess="$(printf %s "${CLAUDE_CODE_SESSION_ID:-unknown}" | tr -c 'A-Za-z0-9._-' '_')"  # no newline can forge a log line
 finish() {  # runs on every exit: one audit line, temp dirs removed
   local rc=$?
   mkdir -p "$gitdir/harness" 2>/dev/null

@@ -132,7 +132,7 @@ Testability: unit. Tested on its own by pre-writing `mainlines-s2` with a total 
 - Headless call of `lib/ask.sh` (new): `claude -p --model $HARNESS_ASK_MODEL --tools "" --no-session-persistence --strict-mcp-config --setting-sources "" --disable-slash-commands --system-prompt <ask prompt> --output-format text`, payload on stdin, run from an empty temporary directory removed on exit, with env `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`. On timeout `claude` and its children are killed.
 - `harness.toml` section `[read]` (new), read through `lib/config.sh`, defaults apply with no harness config: `ask` (new, default true; false disables the referral), `file_budget` (new, default 350), `session_budget` (new, default 3000), `small_read` (new, default 40). `HARNESS_READ_LIMIT` is unchanged.
 - State, in `<git-dir>/harness/` (fallback `/tmp/harness` outside git): `denials-<session>` (existing; lines become `<agent> <path>`, agent being the `agent_id` or `main`); `reads-<session>` (new, one file per session, one line per delivered range: `<agent> <path> <start> <end>`, where `<agent>` is the `agent_id` or `main`, and the last two fields are the range, so a path may contain spaces); `mainlines-<session>` (new, one line per main-thread read holding its delivered line count, summed for F3).
-- `gate.log` ask line (new): `HH:MM:SS agent=unknown tool=ask session=<id|unknown> files=<n> bytes=<n> exit=<n> seconds=<n>`; `ask.sh` cannot see the hook payload, so it reads `CLAUDE_SESSION_ID` from its environment if present, else logs `session=unknown`; read gate lines gain `session=<id>`.
+- `gate.log` ask line (new): `HH:MM:SS agent=unknown tool=ask session=<id|unknown> files=<n> bytes=<n> exit=<n> seconds=<n>`; `ask.sh` cannot see the hook payload, so it reads `CLAUDE_CODE_SESSION_ID` from its environment if present, else logs `session=unknown`; read gate lines gain `session=<id>`.
 - Denial message (required elements, not exact wording): the file and its line count or the budget figures; the runnable ask command with absolute `lib/ask.sh` path and the denied file; the instruction to Read with offset and limit only on returned ranges; for F2 the substrings `seen A-B`, `budget N` and `lib/ask.sh`. Fallback text per F1.12. No denial text mentions the loop guard.
 - Files that must mention `ask.sh` afterwards: `README.md` ("What is here", the `hooks/read-gate.sh` line), `skills/tdd/SKILL.md` (the line on files over 350 lines), `CONCEPT.md` (the read shunt row). `tests/run.sh` gains the checks of F1 to F3.
 
@@ -154,7 +154,7 @@ Testability: unit. Tested on its own by pre-writing `mainlines-s2` with a total 
 - `claude` is on `PATH` where the harness runs. If wrong: denials fall back to the Grep message.
 - The session id stays the same across context compaction. If wrong: budgets reset, which is lenient and acceptable.
 
-- The environment provides `CLAUDE_SESSION_ID` to commands the agent runs. If wrong: SC4 is counted by a 60 second time window after each denial instead of by session id.
+- The environment provides `CLAUDE_CODE_SESSION_ID` to commands the agent runs. If wrong: SC4 is counted by a 60 second time window after each denial instead of by session id.
 
 ## Dependencies
 none new. The `claude` CLI is already required by the host; `perl` and `awk` are present on macOS.
