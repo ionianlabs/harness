@@ -18,7 +18,7 @@ Not built yet:
 Known limits:
 
 - The commit gate cannot see commands built from variables, or heredocs that run later.
-- The read gate does not count reads made with `sed -n`, `awk`, `<` or `$( )`.
+- The read gate does not count reads made with `<` or `$( )`.
 - I develop and test on macOS only.
 
 ## Install.
@@ -72,7 +72,7 @@ Hand off
 
 Guard
 
-- `hooks/read-gate.sh`: denies whole-file reads of large files (over 350 lines by default) and keeps a per-agent line budget. The denial tells the model to ask a question with `lib/ask.sh` or to read a range.
+- `hooks/read-gate.sh`: denies whole-file reads of large files (over 350 lines by default) and keeps a per-agent line budget of 350 distinct lines per file, across Read, `cat`, `head`, `tail`, `sed -n` and `awk`. The main thread also has a session budget of 3000 lines, after which it reads at most 40 lines at a time. The denial tells the model to ask a question with `lib/ask.sh` or to read a range.
 - `agents/reader.md`: a small read-only agent that answers one question about a file with line numbers.
 - `hooks/commit-gate.sh`: on `git commit`, refuses `--no-verify`, scans staged lines with gitleaks, runs your unit suite and requires a test change with a source change.
 - `lib/config.sh`: reads `harness.toml`.

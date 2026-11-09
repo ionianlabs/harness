@@ -57,7 +57,7 @@ Each one maps to a failure mode seen in practice. Each runs as a small shell scr
 
 | Hook | Event and matcher | Rule | Incident |
 |---|---|---|---|
-| read shunt | PreToolUse Read, Bash | deny untargeted reads of files over 350 lines and `cat`/`head`/`tail` on them; piped or redirected commands and offset/limit reads pass; `agent_type: reader` exempt | context blow-up, Spotify's 82 to 94 percent savings |
+| read shunt | PreToolUse Read, Bash | deny untargeted reads of files over 350 lines and `cat`/`head`/`tail` on them; piped or redirected commands pass; offset/limit reads pass within a 350-line budget of distinct lines per file and agent; the main thread has a 3000-line session budget (reads of 40 lines or less still pass); every denial names `lib/ask.sh`; `agent_type: reader` exempt | context blow-up, Spotify's 82 to 94 percent savings |
 | main thread hands off | PreToolUse Edit, Write | in `/change` and `/build`, deny edits when `agent_id` is empty (main thread), except `docs/designs/**` and `docs/adr/**` | coordinator drifting into specialist work |
 | qa stays in tests | PreToolUse Edit, Write | `agent_type: qa` may only write under the configured test directory | agents declaring their own work done |
 | commit gate | PreToolUse Bash `git commit` | run `test.unit` from `harness.toml` first, deny on red; deny `--no-verify`; deny if the diff touches source but no test file (configurable); run `gitleaks` on staged lines | red merge through a pipe, secrets in sample data |
