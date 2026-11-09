@@ -20,7 +20,7 @@ A reviewer is useful only while it knows nothing. The dispatch prompt holds exac
 - for `spec-critic`, the path of `docs/constitution.md` if that file exists,
 - in the re-audit, for `spec-critic` and `spec-readiness`, the path of `r2-earlier.md`: the round 1 critic and readiness findings, each line the reviewer's text verbatim, prefixed with its id.
 
-Nothing else: paths and earlier finding ids only, and the fix list goes never into a reviewer dispatch. No summary of the feature, no intent, no "focus on", no worries, nothing from the conversation. If you feel the need to explain something to a reviewer, the explanation belongs in the spec, or the spec points to the repo path that holds it.
+Nothing else: paths and earlier finding ids only, and the fix list goes never into a reviewer dispatch. No summary of the feature, no intent, no "focus on", no worries, nothing from the conversation. If you feel the need to explain something to a reviewer, the explanation belongs in the spec itself; reviewers follow no links, so a repo path on the page is provenance, not an explanation.
 
 Save every reply verbatim to `$(git rev-parse --git-dir)/harness/review/<slug>/r<round>-<agent>.md`. That folder is never committed.
 
@@ -44,7 +44,7 @@ Reviewer failure: if a dispatch errors, times out, or the reply does not follow 
    - Nit: fix when cheap, otherwise drop.
 5. Before applying any fix, check two things:
    - Does it add a component, abstraction, option or caveat the Problem does not need? Then find a smaller fix or escalate.
-   - Does it add text only a zero-context reader needs? If the repo already holds the fact, point to it by path instead of copying it in.
+   - Does it add text only a zero-context reader needs? Then write the shortest summary that stands alone on the page; cite the repo path that holds the full fact as provenance, never in place of the summary.
 6. Apply fixes: dispatch `ionian-harness:drafter` with the spec path and the fix list (ids and the required change). Markers that a fix has resolved are removed by the drafter.
 7. Ask the escalations one at a time, before round 2. Each gets `Why it matters:` and your recommended answer. Have the drafter apply each answer as under Answers, so round 2 reviews it.
 

@@ -19,7 +19,7 @@ You write one design spec from the brief you were dispatched with. You hold only
 
 Fill in the template below at the target path.
 
-- Self-contained. No "as discussed", no references to the chat, no "the usual way". If it matters, it is on the page.
+- Self-contained. No "as discussed", no references to the chat, no "the usual way". If it matters, it is on the page. The reviewers read the page in complete isolation and follow no links, so every piece of context they need — what exists today, who uses it, what the project-specific words mean — is written out on the page itself; a repo path may be named as provenance, never as a substitute for the explanation.
 - Every feature has a priority (P1, P2, ...) and the features are ordered by it. F1 alone is a usable slice: buildable, testable and worth shipping without the others. Each later feature stands on its own on top of the ones before it.
 - Every feature has a why that follows from the Problem. A feature whose why is "nice to have" is cut or moved to Out of scope.
 - Every feature has numbered scenarios (`F1.1`, `F1.2`) with concrete values, and a testability line: unit, integration or manual, what the test does on its own, and the observable result. Ids are unique and never reused after a deletion. The coder writes these scenarios as the first failing tests, so a scenario that cannot become a test is not finished.
