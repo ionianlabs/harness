@@ -819,12 +819,20 @@ EOF
   check "commit: plain commit --no-verify still denied"       2 $C '{"tool_name":"Bash","cwd":"'"$cr"'","tool_input":{"command":"git commit --no-verify -m x"}}'
   echo 'this is not json {' | rg; ok "read: non-JSON payload fails open" $?
 }
+g_descr() {  # the hosted Claude app rejects a skill or agent description that contains < or >
+  local f bad=0
+  for f in "$ROOT"/skills/*/SKILL.md "$ROOT"/agents/*.md; do
+    grep -m1 '^description:' "$f" | grep -q '[<>]' && { echo "     has < or >: ${f#$ROOT/}"; bad=1; }
+  done
+  ok "plugin: no skill or agent description contains < or >" $bad
+}
 run_group() {  # name: run the group in a subshell, output and counters to files
   ( n=0; fail=0; "$1"; echo "$n $fail" > "$OUT/$1.rc" ) > "$OUT/$1.out" 2>&1 &
 }
 OUT="$TROOT/out"; mkdir "$OUT"
 groups="g_read1 g_read2 g_failopen g_budget g_budgetb1 g_budgetb2 g_budgetb3 g_budgetb4 g_session g_commit1 g_commit2 g_commit3 g_commit4 g_secret g_ask1 g_ask2 g_ask3 g_fast"
 groups="$groups g_agents"   # coordinator-hands-off group, own line
+groups="$groups g_descr"    # descriptions the hosted Claude app accepts
 for g in $groups; do run_group $g; done
 wait
 total=0

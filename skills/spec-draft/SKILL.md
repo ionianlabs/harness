@@ -1,6 +1,6 @@
 ---
 name: spec-draft
-description: Draft a design spec before any code is written, as docs/designs/<slug>.md. Use when the user asks for a spec or a design, starts a /build, or describes a feature that carries design decisions (new module, new interface, new dependency). Ends by handing the draft to spec-review; never approves it.
+description: Draft a design spec before any code is written, as a markdown file in docs/designs/ named after the feature. Use when the user asks for a spec or a design, starts a /build, or describes a feature that carries design decisions (new module, new interface, new dependency). Ends by handing the draft to spec-review; never approves it.
 ---
 # Spec draft
 

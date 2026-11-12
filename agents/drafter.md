@@ -1,6 +1,6 @@
 ---
 name: drafter
-description: Writes or revises one design spec at docs/designs/<slug>.md from a brief, applies review fixes and records the Review section and Status. Dispatch when a spec to write or revise is needed. Returns the self-check results and every brief item it could not place.
+description: Writes or revises one design spec in docs/designs/ from a brief, applies review fixes and records the Review section and Status. Dispatch when a spec to write or revise is needed. Returns the self-check results and every brief item it could not place.
 model: sonnet
 tools: Read, Write, Edit, Grep, Glob
 ---

@@ -1,7 +1,7 @@
 {
   "name": "ionian-harness",
   "displayName": "Ionian Harness",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Spec-first, test-first development with review gates and a read gate for Claude Code, enforced by hooks.",
   "author": {
     "name": "Ionian Labs",
