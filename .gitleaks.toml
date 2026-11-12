@@ -1,0 +1,8 @@
+# Default gitleaks rules, plus one small allowlist entry for a known false positive.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "A config test line in tests/run.sh (handoff.nokey=) is not a key"
+regexTarget = "line"
+regexes = ['''handoff\.nokey=''']
